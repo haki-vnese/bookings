@@ -1,4 +1,5 @@
 import express from 'express';
+import catchAsync from '../utils/catchAsync.js';
 import {
   getAllServices,
   getServiceById,
@@ -9,10 +10,14 @@ import {
 
 const router = express.Router();
 
-router.get('/', getAllServices);
-router.get('/:id', getServiceById);
-router.post('/', createService);
-router.put('/:id', updateService);
-router.delete('/:id', deleteService);
+router.get('/', catchAsync(getAllServices));
+router.get('/debug/throw', catchAsync(() => {
+  // throw inside the wrapped handler so catchAsync forwards the error to next(err)
+  throw new Error('This is a test error for debugging purposes.');
+}));
+router.get('/:id', catchAsync(getServiceById));
+router.post('/', catchAsync(createService));
+router.put('/:id', catchAsync(updateService));
+router.delete('/:id', catchAsync(deleteService));
 
 export default router;

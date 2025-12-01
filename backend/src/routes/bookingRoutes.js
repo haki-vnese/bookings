@@ -1,4 +1,5 @@
 import express from 'express';
+import catchAsync from '../utils/catchAsync.js';
 import {
     getAllBookings,
     getBookingById,
@@ -11,12 +12,13 @@ import {
 
 const router = express.Router();
 
-router.get('/', getAllBookings);
-router.get('/:id', getBookingById);
-router.get('/technician/:technicianId', getBookingByTechnician);
-router.get('/customer/:customerId', getBookingByCustomer);
-router.post('/', createBooking);
-router.put('/:id', updateBooking);
-router.delete('/:id', deleteBooking);
+router.get('/', catchAsync(getAllBookings));
+// more specific routes must come before the param route '/:id'
+router.get('/technician/:technicianId', catchAsync(getBookingByTechnician));
+router.get('/customer/:customerId', catchAsync(getBookingByCustomer));
+router.get('/:id', catchAsync(getBookingById));
+router.post('/', catchAsync(createBooking));
+router.put('/:id', catchAsync(updateBooking));
+router.delete('/:id', catchAsync(deleteBooking));
 
 export default router;

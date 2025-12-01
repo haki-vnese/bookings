@@ -1,4 +1,5 @@
 import express from 'express'
+import catchAsync from '../utils/catchAsync.js';
 import {
   getAllUsers,
   getUserById,
@@ -11,12 +12,12 @@ import {
 
 const router = express.Router()
 
-router.get('/', getAllUsers)
-router.get('/technicians', getTechnicians)
-router.get('/customers', getCustomers)
-router.get('/:id', getUserById)
-router.post('/', createUser)
-router.put('/:id', updateUser)
-router.delete('/:id', deleteUser)
+router.get('/', catchAsync(getAllUsers))
+router.get('/technicians', catchAsync(getTechnicians))
+router.get('/customers', catchAsync(getCustomers))
+router.get('/:id', catchAsync(getUserById))
+router.post('/', catchAsync(createUser))
+router.put('/:id', catchAsync(updateUser))
+router.delete('/:id', catchAsync(deleteUser))
 
 export default router
