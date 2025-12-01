@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import servicesRouter from './src/routes/servicesRoutes.js';
 import usersRouter from './src/routes/usersRoutes.js';
 import technicianServicesRouter from './src/routes/technicianServicesRoutes.js';
@@ -7,6 +8,14 @@ import availabilityRouter from './src/routes/availabilityRoutes.js';
 
 const app = express();
 app.use(express.json());
+app.use(cors({
+    origin: '*',
+})
+);
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: "Internal Server Error" });
+});
 
 app.use('/api/services', servicesRouter);
 app.use('/api/users', usersRouter);
