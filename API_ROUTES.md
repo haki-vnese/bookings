@@ -1,0 +1,429 @@
+# API Routes Documentation
+
+## Base URL
+```
+http://localhost:8000/api
+```
+
+---
+
+## 📋 Services
+
+### GET /services
+Fetch all services.
+```
+GET /api/services
+```
+**Response (200):**
+```json
+[
+  {
+    "id": "uuid",
+    "name": "Manicure",
+    "description": "Professional manicure service",
+    "duration_minutes": 30,
+    "price": 25.00,
+    "created_at": "2024-01-18T10:00:00Z"
+  }
+]
+```
+
+### GET /services/:id
+Fetch a specific service by ID.
+```
+GET /api/services/{id}
+```
+**Response (200):**
+```json
+{
+  "id": "uuid",
+  "name": "Manicure",
+  "description": "Professional manicure service",
+  "duration_minutes": 30,
+  "price": 25.00
+}
+```
+
+### POST /services
+Create a new service.
+```
+POST /api/services
+Content-Type: application/json
+
+{
+  "name": "Pedicure",
+  "description": "Professional pedicure service",
+  "duration_minutes": 45,
+  "price": 35.00
+}
+```
+**Required Fields:**
+- `name` (string, max 255)
+- `duration_minutes` (number, min 1)
+- `price` (number, min 0)
+
+**Optional Fields:**
+- `description` (string, max 1000)
+
+**Response (201):** Created service object
+
+### PUT /services/:id
+Update a service.
+```
+PUT /api/services/{id}
+Content-Type: application/json
+
+{
+  "name": "Deluxe Pedicure",
+  "price": 40.00
+}
+```
+**Optional Fields:** Any service field (at least 1 required)
+
+**Response (200):** Updated service object
+
+### DELETE /services/:id
+Delete a service.
+```
+DELETE /api/services/{id}
+```
+**Response (204):** No content
+
+---
+
+## 👥 Users
+
+### GET /users
+Fetch all users.
+```
+GET /api/users
+```
+**Response (200):**
+```json
+[
+  {
+    "id": "uuid",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "role": "technician",
+    "created_at": "2024-01-18T10:00:00Z"
+  }
+]
+```
+
+### GET /users/:id
+Fetch a specific user by ID.
+```
+GET /api/users/{id}
+```
+**Response (200):** User object
+
+### GET /users/technicians
+Fetch all technicians.
+```
+GET /api/users/technicians
+```
+**Response (200):** Array of technician objects
+
+### GET /users/customers
+Fetch all customers.
+```
+GET /api/users/customers
+```
+**Response (200):** Array of customer objects
+
+### POST /users
+Create a new user.
+```
+POST /api/users
+Content-Type: application/json
+
+{
+  "name": "Jane Smith",
+  "email": "jane@example.com",
+  "role": "technician"
+}
+```
+**Required Fields:**
+- `name` (string, max 255)
+- `email` (string, valid email format)
+- `role` (string, must be 'technician' or 'customer')
+
+**Response (201):** Created user object
+
+### PUT /users/:id
+Update a user.
+```
+PUT /api/users/{id}
+Content-Type: application/json
+
+{
+  "name": "Jane Johnson",
+  "email": "jane.johnson@example.com"
+}
+```
+**Optional Fields:** Any user field (at least 1 required)
+
+**Response (200):** Updated user object
+
+### DELETE /users/:id
+Delete a user.
+```
+DELETE /api/users/{id}
+```
+**Response (204):** No content
+
+---
+
+## 🛠️ Technician Services
+
+### GET /technician-services
+Fetch all technician services.
+```
+GET /api/technician-services
+```
+**Response (200):**
+```json
+[
+  {
+    "id": "uuid",
+    "technician_id": "uuid",
+    "service_id": "uuid",
+    "price": 30.00,
+    "created_at": "2024-01-18T10:00:00Z"
+  }
+]
+```
+
+### GET /technician-services/:id
+Fetch a specific technician service by ID.
+```
+GET /api/technician-services/{id}
+```
+**Response (200):** Technician service object
+
+### POST /technician-services
+Create a technician-service relationship.
+```
+POST /api/technician-services
+Content-Type: application/json
+
+{
+  "technician_id": "uuid",
+  "service_id": "uuid",
+  "price": 30.00
+}
+```
+**Required Fields:**
+- `technician_id` (UUID)
+- `service_id` (UUID)
+
+**Optional Fields:**
+- `price` (number, min 0) - overrides default service price
+
+**Response (201):** Created technician service object
+
+### DELETE /technician-services/:id
+Delete a technician-service relationship.
+```
+DELETE /api/technician-services/{id}
+```
+**Response (204):** No content
+
+---
+
+## 📅 Bookings
+
+### GET /bookings
+Fetch all bookings.
+```
+GET /api/bookings
+```
+**Response (200):** Array of booking objects
+
+### GET /bookings/:id
+Fetch a specific booking by ID.
+```
+GET /api/bookings/{id}
+```
+**Response (200):** Booking object
+
+### GET /bookings/technician/:technicianId
+Fetch all bookings for a specific technician.
+```
+GET /api/bookings/technician/{technicianId}
+```
+**Response (200):** Array of booking objects
+
+### GET /bookings/customer/:customerId
+Fetch all bookings for a specific customer.
+```
+GET /api/bookings/customer/{customerId}
+```
+**Response (200):** Array of booking objects
+
+### POST /bookings
+Create a new booking.
+```
+POST /api/bookings
+Content-Type: application/json
+
+{
+  "technician_id": "uuid",
+  "customer_id": "uuid",
+  "service_id": "uuid",
+  "start_time": "2024-01-20T10:00:00Z",
+  "end_time": "2024-01-20T10:30:00Z",
+  "note": "Customer preference: no aggressive filing"
+}
+```
+**Required Fields:**
+- `technician_id` (UUID)
+- `customer_id` (UUID)
+- `service_id` (UUID)
+- `start_time` (ISO 8601 datetime)
+- `end_time` (ISO 8601 datetime, must be after start_time)
+
+**Optional Fields:**
+- `note` (string)
+
+**Response (201):**
+```json
+{
+  "id": "uuid",
+  "technician_id": "uuid",
+  "customer_id": "uuid",
+  "service_id": "uuid",
+  "start_time": "2024-01-20T10:00:00Z",
+  "end_time": "2024-01-20T10:30:00Z",
+  "note": "Customer preference: no aggressive filing",
+  "created_at": "2024-01-18T10:00:00Z"
+}
+```
+
+### PUT /bookings/:id
+Update a booking.
+```
+PUT /api/bookings/{id}
+Content-Type: application/json
+
+{
+  "start_time": "2024-01-20T11:00:00Z",
+  "end_time": "2024-01-20T11:30:00Z"
+}
+```
+**Optional Fields:** Any booking field (at least 1 required)
+
+**Response (200):** Updated booking object
+
+### DELETE /bookings/:id
+Delete a booking.
+```
+DELETE /api/bookings/{id}
+```
+**Response (204):** No content
+
+---
+
+## ⏰ Availability
+
+### GET /availability/:technicianId
+Fetch availability slots for a technician.
+```
+GET /api/availability/{technicianId}
+```
+**Query Parameters (optional):**
+- `date` (YYYY-MM-DD) - Get availability for a specific date
+
+**Response (200):**
+```json
+{
+  "technician_id": "uuid",
+  "available_slots": [
+    {
+      "start_time": "2024-01-20T10:00:00Z",
+      "end_time": "2024-01-20T10:30:00Z",
+      "duration_minutes": 30
+    }
+  ]
+}
+```
+
+---
+
+## ⚠️ Error Responses
+
+All endpoints return standardized error responses:
+
+### 400 Bad Request (Validation Error)
+```json
+{
+  "error": {
+    "statusCode": 400,
+    "message": "Validation failed",
+    "details": [
+      {
+        "field": "name",
+        "message": "name is required"
+      }
+    ]
+  }
+}
+```
+
+### 404 Not Found
+```json
+{
+  "error": {
+    "statusCode": 404,
+    "message": "Resource not found"
+  }
+}
+```
+
+### 500 Internal Server Error
+```json
+{
+  "error": {
+    "statusCode": 500,
+    "message": "Internal server error"
+  }
+}
+```
+
+---
+
+## Testing with cURL
+
+**Get all services:**
+```bash
+curl -X GET http://localhost:8000/api/services
+```
+
+**Create a service:**
+```bash
+curl -X POST http://localhost:8000/api/services \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Nail Art",
+    "description": "Custom nail art design",
+    "duration_minutes": 60,
+    "price": 50.00
+  }'
+```
+
+**Get bookings for a customer:**
+```bash
+curl -X GET http://localhost:8000/api/bookings/customer/{customerId}
+```
+
+---
+
+## Environment Setup
+
+Make sure your `.env` file has:
+```
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_key
+PORT=8000
+```
