@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import authRouter from './src/routes/authRoutes.js';
 import servicesRouter from './src/routes/servicesRoutes.js';
 import usersRouter from './src/routes/usersRoutes.js';
 import technicianServicesRouter from './src/routes/technicianServicesRoutes.js';
@@ -16,6 +17,7 @@ app.use(cors({
 );
 // request logging (lightweight)
 app.use(requestLogger);
+app.use('/api/auth', authRouter);
 app.use('/api/services', servicesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/technician-services', technicianServicesRouter);

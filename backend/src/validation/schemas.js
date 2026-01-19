@@ -1,5 +1,34 @@
 import Joi from 'joi';
 
+// Auth validation schemas
+export const authSchemas = {
+  register: Joi.object({
+    name: Joi.string().required().max(255).messages({
+      'string.empty': 'Name is required',
+      'string.max': 'Name must be less than 255 characters',
+    }),
+    email: Joi.string().email().required().max(255).messages({
+      'string.email': 'Must be a valid email address',
+    }),
+    password: Joi.string().required().min(6).max(128).messages({
+      'string.empty': 'Password is required',
+      'string.min': 'Password must be at least 6 characters',
+      'string.max': 'Password must be less than 128 characters',
+    }),
+    role: Joi.string().valid('technician', 'customer').required().messages({
+      'any.only': 'Role must be either "technician" or "customer"',
+    }),
+  }),
+  login: Joi.object({
+    email: Joi.string().email().required().messages({
+      'string.email': 'Must be a valid email address',
+    }),
+    password: Joi.string().required().messages({
+      'string.empty': 'Password is required',
+    }),
+  }),
+};
+
 // Services validation schemas
 export const serviceSchemas = {
   create: Joi.object({

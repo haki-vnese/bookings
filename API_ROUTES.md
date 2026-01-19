@@ -7,7 +7,125 @@ http://localhost:8000/api
 
 ---
 
-## 📋 Services
+## � Authentication
+
+### POST /auth/register
+Register a new user.
+```
+POST /api/auth/register
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "password": "securePassword123",
+  "role": "customer"
+}
+```
+**Required Fields:**
+- `name` (string, max 255)
+- `email` (string, valid email format)
+- `password` (string, min 6, max 128 characters)
+- `role` (string, must be 'technician' or 'customer')
+
+**Response (201):**
+```json
+{
+  "message": "User registered successfully",
+  "user": {
+    "id": "uuid",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "role": "customer"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+### POST /auth/login
+Login an existing user.
+```
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "email": "john@example.com",
+  "password": "securePassword123"
+}
+```
+**Required Fields:**
+- `email` (string, valid email format)
+- `password` (string)
+
+**Response (200):**
+```json
+{
+  "message": "Login successful",
+  "user": {
+    "id": "uuid",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "role": "customer"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+### GET /auth/me
+Get current authenticated user's profile.
+```
+GET /api/auth/me
+Authorization: Bearer {token}
+```
+**Response (200):**
+```json
+{
+  "id": "uuid",
+  "name": "John Doe",
+  "email": "john@example.com",
+  "role": "customer",
+  "created_at": "2024-01-18T10:00:00Z"
+}
+```
+
+### POST /auth/verify
+Verify if a JWT token is valid.
+```
+POST /api/auth/verify
+Content-Type: application/json
+
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+**Response (200):**
+```json
+{
+  "valid": true,
+  "user": {
+    "userId": "uuid",
+    "email": "john@example.com",
+    "role": "customer"
+  }
+}
+```
+
+### POST /auth/logout
+Logout (client removes token from localStorage).
+```
+POST /api/auth/logout
+Authorization: Bearer {token}
+```
+**Response (200):**
+```json
+{
+  "message": "Logout successful"
+}
+```
+
+---
+
+## �📋 Services
 
 ### GET /services
 Fetch all services.
@@ -389,6 +507,56 @@ All endpoints return standardized error responses:
     "message": "Internal server error"
   }
 }
+```
+
+---
+
+## Using Authentication
+
+### 1. Register a new user
+```bash
+curl -X POST http://localhost:8000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jane Smith",
+    "email": "jane@example.com",
+    "password": "password123",
+    "role": "technician"
+  }'
+```
+
+### 2. Login
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "jane@example.com",
+    "password": "password123"
+  }'
+```
+Copy the returned `token`.
+
+### 3. Use token in protected routes
+All routes that require authentication use the Authorization header:
+```bash
+curl -X GET http://localhost:8000/api/auth/me \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
+
+### 4. Protected Routes (require valid JWT token)
+- `GET /api/auth/me` - Get current user profile
+- `POST /api/auth/logout` - Logout (optional, token just removed on client)
+
+### 5. Optional: Protect other routes
+You can protect any route by adding the `verifyAuth` middleware:
+```javascript
+import { verifyAuth, authorize } from '../middleware/auth.js';
+
+// Protect a route
+router.delete('/:id', verifyAuth, catchAsync(deleteUser));
+
+// Protect with role check
+router.get('/admin/dashboard', verifyAuth, authorize('admin'), handler);
 ```
 
 ---
