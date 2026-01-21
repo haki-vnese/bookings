@@ -47,7 +47,7 @@ ADD COLUMN password TEXT NOT NULL;
 
 Your `.env` file now has:
 ```
-JWT_SECRET=your-super-secret-key-change-this-in-production
+JWT_SECRET=
 JWT_EXPIRY=7d
 ```
 

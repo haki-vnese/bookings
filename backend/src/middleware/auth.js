@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import ApiError from '../utils/ApiError.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
  * Verify JWT token and attach user to request
