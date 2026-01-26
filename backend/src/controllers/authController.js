@@ -3,14 +3,14 @@ import ApiError from '../utils/ApiError.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRY = process.env.JWT_EXPIRY;
-
 /**
  * Register a new user
  * POST /api/auth/register
  */
 export const register = async (req, res) => {
+    const JWT_SECRET = process.env.JWT_SECRET;
+    const JWT_EXPIRY = process.env.JWT_EXPIRY;
+    
     const { name, email, password, role } = req.body;
 
     // Check if user already exists
@@ -54,6 +54,9 @@ export const register = async (req, res) => {
  * POST /api/auth/login
  */
 export const login = async (req, res) => {
+    const JWT_SECRET = process.env.JWT_SECRET;
+    const JWT_EXPIRY = process.env.JWT_EXPIRY;
+    
     const { email, password } = req.body;
 
     // Find user
@@ -124,6 +127,8 @@ export const logout = async (req, res) => {
  * POST /api/auth/verify
  */
 export const verifyToken = async (req, res) => {
+    const JWT_SECRET = process.env.JWT_SECRET;
+    
     const token = req.body.token || req.headers.authorization?.split(' ')[1];
 
     if (!token) {

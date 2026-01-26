@@ -39,7 +39,7 @@ describe('Authentication Flow', () => {
                 .send(testUser);
 
             expect(res.status).toBe(409);
-            expect(res.body.message).toContain('already registered');
+            expect(res.body.error).toContain('already registered');
         });
 
         it('should reject invalid password (too short)', async () => {
@@ -52,7 +52,7 @@ describe('Authentication Flow', () => {
                 });
 
             expect(res.status).toBe(400);
-            expect(res.body.message).toContain('at least 6 characters');
+            expect(res.body.error).toContain('at least 6 characters');
         });
 
         it('should reject invalid email', async () => {
@@ -65,7 +65,7 @@ describe('Authentication Flow', () => {
                 });
 
             expect(res.status).toBe(400);
-            expect(res.body.message).toContain('valid email');
+            expect(res.body.error).toContain('valid email');
         });
 
         it('should reject invalid role', async () => {
@@ -78,7 +78,7 @@ describe('Authentication Flow', () => {
                 });
 
             expect(res.status).toBe(400);
-            expect(res.body.message).toContain('technician');
+            expect(res.body.error).toContain('technician');
         });
     });
 
@@ -109,7 +109,7 @@ describe('Authentication Flow', () => {
                 });
 
             expect(res.status).toBe(401);
-            expect(res.body.message).toContain('Invalid email or password');
+            expect(res.body.error).toContain('Invalid email or password');
         });
 
         it('should reject non-existent email', async () => {
@@ -121,7 +121,7 @@ describe('Authentication Flow', () => {
                 });
 
             expect(res.status).toBe(401);
-            expect(res.body.message).toContain('Invalid email or password');
+            expect(res.body.error).toContain('Invalid email or password');
         });
     });
 
@@ -143,7 +143,7 @@ describe('Authentication Flow', () => {
                 .get('/api/auth/me');
 
             expect(res.status).toBe(401);
-            expect(res.body.message).toContain('No token provided');
+            expect(res.body.error).toContain('No token provided');
         });
 
         it('should reject request with invalid token', async () => {
@@ -152,7 +152,7 @@ describe('Authentication Flow', () => {
                 .set('Authorization', 'Bearer invalid_token_xyz');
 
             expect(res.status).toBe(401);
-            expect(res.body.message).toContain('Invalid or expired token');
+            expect(res.body.error).toContain('Invalid or expired token');
         });
 
         it('should reject request with malformed authorization header', async () => {
@@ -182,7 +182,7 @@ describe('Authentication Flow', () => {
                 .send({ token: 'invalid_token' });
 
             expect(res.status).toBe(401);
-            expect(res.body.message).toContain('Invalid or expired token');
+            expect(res.body.error).toContain('Invalid or expired token');
         });
     });
 
@@ -192,6 +192,7 @@ describe('Authentication Flow', () => {
             const newUser = {
                 name: 'New User',
                 email: `newuser${Date.now()}@example.com`,
+                password: 'newpass123',
                 role: 'technician'
             };
 
@@ -208,6 +209,7 @@ describe('Authentication Flow', () => {
             const newUser = {
                 name: 'Another User',
                 email: `another${Date.now()}@example.com`,
+                password: 'anotherpass123',
                 role: 'customer'
             };
 
@@ -216,7 +218,7 @@ describe('Authentication Flow', () => {
                 .send(newUser);
 
             expect(res.status).toBe(401);
-            expect(res.body.message).toContain('No token provided');
+            expect(res.body.error).toContain('No token provided');
         });
 
         it('should update user when authenticated', async () => {
@@ -242,6 +244,7 @@ describe('Authentication Flow', () => {
             const newUser = {
                 name: 'User to Delete',
                 email: `delete${Date.now()}@example.com`,
+                password: 'deletepass123',
                 role: 'customer'
             };
 
@@ -250,6 +253,7 @@ describe('Authentication Flow', () => {
                 .set('Authorization', `Bearer ${token}`)
                 .send(newUser);
 
+            expect(createRes.status).toBe(201);
             const userToDeleteId = createRes.body[0].id;
 
             // Now delete it

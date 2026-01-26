@@ -1,15 +1,16 @@
 import jwt from 'jsonwebtoken';
 import ApiError from '../utils/ApiError.js';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-
 /**
  * Verify JWT token and attach user to request
  * Used as middleware to protect routes
  */
 export const verifyAuth = (req, res, next) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
+        const JWT_SECRET = process.env.JWT_SECRET;
+        
+        const authHeader = req.headers.authorization;
+        const token = authHeader?.split(' ')[1];
 
         if (!token) {
             throw new ApiError(401, 'No token provided', { expose: true });

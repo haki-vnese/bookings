@@ -2,13 +2,36 @@ import request from 'supertest';
 import app from '../server.js';
 import { jest } from '@jest/globals';
 
+// Helper to get a valid token for protected endpoints
+let validToken = null;
+
+async function getValidToken() {
+  if (validToken) return validToken;
+  
+  const res = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Test User',
+      email: `testvalidation${Date.now()}@example.com`,
+      password: 'testpass123',
+      role: 'customer'
+    });
+  
+  if (res.status === 201 && res.body.token) {
+    validToken = res.body.token;
+  }
+  return validToken;
+}
+
 describe('input validation middleware', () => {
   describe('POST /api/services (create service)', () => {
     test('valid service -> creates and returns 201', async () => {
+      const token = await getValidToken();
       // This test assumes Supabase is mocked or available; we're testing validation layer
       // In a real scenario you'd mock the supabase.from().insert() call
       const res = await request(app)
         .post('/api/services')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           name: 'Test Service',
           description: 'A test service',
@@ -59,11 +82,14 @@ describe('input validation middleware', () => {
 
   describe('POST /api/users (create user)', () => {
     test('invalid email -> returns 400', async () => {
+      const token = await getValidToken();
       const res = await request(app)
         .post('/api/users')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           name: 'Test User',
           email: 'not-an-email',
+          password: 'testpass123',
           role: 'customer',
         });
       expect(res.status).toBe(400);
@@ -71,11 +97,14 @@ describe('input validation middleware', () => {
     });
 
     test('invalid role -> returns 400', async () => {
+      const token = await getValidToken();
       const res = await request(app)
         .post('/api/users')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           name: 'Test User',
           email: 'test@example.com',
+          password: 'testpass123',
           role: 'admin', // invalid role
         });
       expect(res.status).toBe(400);
@@ -83,11 +112,14 @@ describe('input validation middleware', () => {
     });
 
     test('valid user data passes validation', async () => {
+      const token = await getValidToken();
       const res = await request(app)
         .post('/api/users')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           name: 'Test User',
-          email: 'test@example.com',
+          email: `test${Date.now()}@example.com`,
+          password: 'testpass123',
           role: 'technician',
         });
       // validation passes, should reach controller (DB error expected in test env)
@@ -97,8 +129,10 @@ describe('input validation middleware', () => {
 
   describe('POST /api/bookings (create booking)', () => {
     test('invalid start_time format -> returns 400', async () => {
+      const token = await getValidToken();
       const res = await request(app)
         .post('/api/bookings')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           technician_id: '12345', // invalid UUID format
           customer_id: 'abcde-12345',
@@ -111,8 +145,10 @@ describe('input validation middleware', () => {
     });
 
     test('end_time before start_time -> returns 400', async () => {
+      const token = await getValidToken();
       const res = await request(app)
         .post('/api/bookings')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           technician_id: '550e8400-e29b-41d4-a716-446655440000',
           customer_id: '550e8400-e29b-41d4-a716-446655440001',
@@ -125,8 +161,10 @@ describe('input validation middleware', () => {
     });
 
     test('valid booking passes validation', async () => {
+      const token = await getValidToken();
       const res = await request(app)
         .post('/api/bookings')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           technician_id: '550e8400-e29b-41d4-a716-446655440000',
           customer_id: '550e8400-e29b-41d4-a716-446655440001',
@@ -142,16 +180,20 @@ describe('input validation middleware', () => {
 
   describe('PUT /api/services/:id (update service)', () => {
     test('empty update -> returns 400 (at least one field required)', async () => {
+      const token = await getValidToken();
       const res = await request(app)
         .put('/api/services/550e8400-e29b-41d4-a716-446655440000')
+        .set('Authorization', `Bearer ${token}`)
         .send({});
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/Validation failed/i);
     });
 
     test('partial update with valid data passes validation', async () => {
+      const token = await getValidToken();
       const res = await request(app)
         .put('/api/services/550e8400-e29b-41d4-a716-446655440000')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           name: 'Updated Service Name',
         });
