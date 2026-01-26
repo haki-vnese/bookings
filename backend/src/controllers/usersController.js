@@ -2,7 +2,7 @@ import { supabase } from "../db/supabase.js";
 import ApiError from '../utils/ApiError.js';
 
 export const getAllUsers = async (req, res) => {
-    const { data, error } = await supabase.from("users").select("*"); 
+    const { data, error } = await supabase.from("users").select("id, name, email, role, created_at"); 
 
     if (error) throw new ApiError(500, error.message);
     res.json(data);
@@ -10,7 +10,7 @@ export const getAllUsers = async (req, res) => {
 
 export const getUserById = async (req, res) => {
         const { id } = req.params;
-        const { data, error } = await supabase.from("users").select("*").eq("id", id).single();
+        const { data, error } = await supabase.from("users").select("id, name, email, role, created_at").eq("id", id).single();
 
         if (error) throw new ApiError(500, error.message);
         if (!data) throw new ApiError(404, 'User not found', { expose: true });
@@ -42,12 +42,12 @@ export const deleteUser = async (req, res) => {
 }       
 
 export const getTechnicians = async (req, res) => {
-    const { data, error } = await supabase.from("users").select("*").eq("role", "technician");
+    const { data, error } = await supabase.from("users").select("id, name, email, role, created_at").eq("role", "technician");
     if (error) throw new ApiError(500, error.message);
     res.json(data);
 }       
 export const getCustomers = async (req, res) => {
-    const { data, error } = await supabase.from("users").select("*").eq("role", "customer");
+    const { data, error } = await supabase.from("users").select("id, name, email, role, created_at").eq("role", "customer");
     if (error) throw new ApiError(500, error.message);
     res.json(data);
 }       

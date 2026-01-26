@@ -1,6 +1,7 @@
 import express from 'express';
 import catchAsync from '../utils/catchAsync.js';
 import validate from '../middleware/validate.js';
+import { verifyAuth } from '../middleware/auth.js';
 import { bookingSchemas } from '../validation/schemas.js';
 import {
     getAllBookings,
@@ -19,8 +20,8 @@ router.get('/', catchAsync(getAllBookings));
 router.get('/technician/:technicianId', catchAsync(getBookingByTechnician));
 router.get('/customer/:customerId', catchAsync(getBookingByCustomer));
 router.get('/:id', catchAsync(getBookingById));
-router.post('/', validate(bookingSchemas.create), catchAsync(createBooking));
-router.put('/:id', validate(bookingSchemas.update), catchAsync(updateBooking));
-router.delete('/:id', catchAsync(deleteBooking));
+router.post('/', validate(bookingSchemas.create), verifyAuth, catchAsync(createBooking));
+router.put('/:id', validate(bookingSchemas.update), verifyAuth, catchAsync(updateBooking));
+router.delete('/:id', verifyAuth, catchAsync(deleteBooking));
 
 export default router;

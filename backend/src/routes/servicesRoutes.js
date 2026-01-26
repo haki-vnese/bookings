@@ -2,6 +2,7 @@ import express from 'express';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
 import validate from '../middleware/validate.js';
+import { verifyAuth } from '../middleware/auth.js';
 import { serviceSchemas } from '../validation/schemas.js';
 import {
   getAllServices,
@@ -25,8 +26,8 @@ router.get('/debug/expose', (req, res, next) => {
   next(new ApiError(400, 'exposed message', { expose: true }));
 });
 router.get('/:id', catchAsync(getServiceById));
-router.post('/', validate(serviceSchemas.create), catchAsync(createService));
-router.put('/:id', validate(serviceSchemas.update), catchAsync(updateService));
-router.delete('/:id', catchAsync(deleteService));
+router.post('/', validate(serviceSchemas.create), verifyAuth, catchAsync(createService));
+router.put('/:id', validate(serviceSchemas.update), verifyAuth, catchAsync(updateService));
+router.delete('/:id', verifyAuth, catchAsync(deleteService));
 
 export default router;
