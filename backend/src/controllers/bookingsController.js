@@ -9,7 +9,7 @@ export const getAllBookings = async (req, res) => {
 
 export const getBookingById = async (req, res) => {
     const { id } = req.params;
-    const { data, error } = await supabase.from('bookings').select('*').eq('id', id).single();
+    const { data, error } = await supabase.from('bookings').select('*').eq('id', id).maybeSingle();
     if (error) throw new ApiError(500, error.message);
     if (!data) throw new ApiError(404, 'Booking not found', { expose: true });
     res.status(200).json(data);

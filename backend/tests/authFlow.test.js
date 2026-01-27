@@ -1,5 +1,7 @@
 import request from 'supertest';
 import app from '../server.js';
+import { supabase } from '../src/db/supabase.js';
+import bcrypt from 'bcryptjs';
 
 /**
  * Authentication Flow Tests
@@ -8,12 +10,45 @@ import app from '../server.js';
 describe('Authentication Flow', () => {
     let token;
     let userId;
+    let adminToken;
+    let adminUserId;
     const testUser = {
         name: 'Test User',
         email: `testuser${Date.now()}@example.com`,
         password: 'testPassword123',
         role: 'customer'
     };
+    const adminUser = {
+        name: 'Admin User',
+        email: `admin${Date.now()}@example.com`,
+        password: 'adminPass123',
+        role: 'admin'
+    };
+
+    beforeAll(async () => {
+        const hashedPassword = await bcrypt.hash(adminUser.password, 10);
+        const { data: admin, error } = await supabase
+            .from('users')
+            .insert({ name: adminUser.name, email: adminUser.email, password: hashedPassword, role: adminUser.role })
+            .select()
+            .single();
+        if (error) throw error;
+        adminUserId = admin.id;
+
+        const loginRes = await request(app)
+            .post('/api/auth/login')
+            .send({ email: adminUser.email, password: adminUser.password });
+        if (loginRes.status !== 200) {
+            throw new Error('Admin login failed in test setup');
+        }
+        adminToken = loginRes.body.token;
+    });
+
+    afterAll(async () => {
+        if (adminUserId) {
+            await supabase.from('users').delete().eq('id', adminUserId);
+        }
+    });
 
     // Test registration
     describe('POST /api/auth/register', () => {
@@ -188,7 +223,7 @@ describe('Authentication Flow', () => {
 
     // Test protected user operations
     describe('Protected User Operations', () => {
-        it('should create user when authenticated', async () => {
+        it('should reject create user without admin role', async () => {
             const newUser = {
                 name: 'New User',
                 email: `newuser${Date.now()}@example.com`,
@@ -199,6 +234,22 @@ describe('Authentication Flow', () => {
             const res = await request(app)
                 .post('/api/users')
                 .set('Authorization', `Bearer ${token}`)
+                .send(newUser);
+
+            expect(res.status).toBe(403);
+        });
+
+        it('should create user when admin authenticated', async () => {
+            const newUser = {
+                name: 'New User',
+                email: `newuser${Date.now()}@example.com`,
+                password: 'newpass123',
+                role: 'technician'
+            };
+
+            const res = await request(app)
+                .post('/api/users')
+                .set('Authorization', `Bearer ${adminToken}`)
                 .send(newUser);
 
             expect(res.status).toBe(201);
@@ -224,7 +275,7 @@ describe('Authentication Flow', () => {
         it('should update user when authenticated', async () => {
             const res = await request(app)
                 .put(`/api/users/${userId}`)
-                .set('Authorization', `Bearer ${token}`)
+                .set('Authorization', `Bearer ${adminToken}`)
                 .send({ name: 'Updated Name' });
 
             expect(res.status).toBe(200);
@@ -250,7 +301,7 @@ describe('Authentication Flow', () => {
 
             const createRes = await request(app)
                 .post('/api/users')
-                .set('Authorization', `Bearer ${token}`)
+                .set('Authorization', `Bearer ${adminToken}`)
                 .send(newUser);
 
             expect(createRes.status).toBe(201);
@@ -259,7 +310,7 @@ describe('Authentication Flow', () => {
             // Now delete it
             const deleteRes = await request(app)
                 .delete(`/api/users/${userToDeleteId}`)
-                .set('Authorization', `Bearer ${token}`);
+                .set('Authorization', `Bearer ${adminToken}`);
 
             expect(deleteRes.status).toBe(204);
         });
@@ -284,7 +335,8 @@ describe('Authentication Flow', () => {
 
         it('should not return password in getAllUsers', async () => {
             const res = await request(app)
-                .get('/api/users');
+                .get('/api/users')
+                .set('Authorization', `Bearer ${adminToken}`);
 
             expect(res.status).toBe(200);
             expect(res.body).toBeInstanceOf(Array);
@@ -297,14 +349,16 @@ describe('Authentication Flow', () => {
 
         it('should not return password in getUserById', async () => {
             const res = await request(app)
-                .get(`/api/users/${userId}`);
+                .get(`/api/users/${userId}`)
+                .set('Authorization', `Bearer ${adminToken}`);
 
             expect(res.body).not.toHaveProperty('password');
         });
 
         it('should not return password in getTechnicians', async () => {
             const res = await request(app)
-                .get('/api/users/technicians');
+                .get('/api/users/technicians')
+                .set('Authorization', `Bearer ${adminToken}`);
 
             expect(res.body).toBeInstanceOf(Array);
             res.body.forEach(user => {
@@ -314,7 +368,8 @@ describe('Authentication Flow', () => {
 
         it('should not return password in getCustomers', async () => {
             const res = await request(app)
-                .get('/api/users/customers');
+                .get('/api/users/customers')
+                .set('Authorization', `Bearer ${adminToken}`);
 
             expect(res.body).toBeInstanceOf(Array);
             res.body.forEach(user => {

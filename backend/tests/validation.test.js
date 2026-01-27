@@ -1,9 +1,13 @@
 import request from 'supertest';
 import app from '../server.js';
 import { jest } from '@jest/globals';
+import { supabase } from '../src/db/supabase.js';
+import bcrypt from 'bcryptjs';
 
 // Helper to get a valid token for protected endpoints
 let validToken = null;
+let adminToken = null;
+let adminUserId = null;
 
 async function getValidToken() {
   if (validToken) return validToken;
@@ -22,6 +26,40 @@ async function getValidToken() {
   }
   return validToken;
 }
+
+async function getAdminToken() {
+  if (adminToken) return adminToken;
+
+  const adminUser = {
+    name: 'Admin User',
+    email: `adminvalidation${Date.now()}@example.com`,
+    password: 'adminPass123',
+    role: 'admin',
+  };
+  const hashedPassword = await bcrypt.hash(adminUser.password, 10);
+  const { data: admin, error } = await supabase
+    .from('users')
+    .insert({ name: adminUser.name, email: adminUser.email, password: hashedPassword, role: adminUser.role })
+    .select()
+    .single();
+  if (error) throw error;
+  adminUserId = admin.id;
+
+  const res = await request(app)
+    .post('/api/auth/login')
+    .send({ email: adminUser.email, password: adminUser.password });
+
+  if (res.status === 200 && res.body.token) {
+    adminToken = res.body.token;
+  }
+  return adminToken;
+}
+
+afterAll(async () => {
+  if (adminUserId) {
+    await supabase.from('users').delete().eq('id', adminUserId);
+  }
+});
 
 describe('input validation middleware', () => {
   describe('POST /api/services (create service)', () => {
@@ -82,7 +120,7 @@ describe('input validation middleware', () => {
 
   describe('POST /api/users (create user)', () => {
     test('invalid email -> returns 400', async () => {
-      const token = await getValidToken();
+      const token = await getAdminToken();
       const res = await request(app)
         .post('/api/users')
         .set('Authorization', `Bearer ${token}`)
@@ -97,7 +135,7 @@ describe('input validation middleware', () => {
     });
 
     test('invalid role -> returns 400', async () => {
-      const token = await getValidToken();
+      const token = await getAdminToken();
       const res = await request(app)
         .post('/api/users')
         .set('Authorization', `Bearer ${token}`)
@@ -105,14 +143,14 @@ describe('input validation middleware', () => {
           name: 'Test User',
           email: 'test@example.com',
           password: 'testpass123',
-          role: 'admin', // invalid role
+          role: 'owner', // invalid role
         });
       expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/technician|customer/i);
+      expect(res.body.error).toMatch(/technician|customer|admin/i);
     });
 
     test('valid user data passes validation', async () => {
-      const token = await getValidToken();
+      const token = await getAdminToken();
       const res = await request(app)
         .post('/api/users')
         .set('Authorization', `Bearer ${token}`)

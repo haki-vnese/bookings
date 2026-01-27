@@ -9,7 +9,7 @@ export const getAllTechnicianServices = async (req, res) => {
 
 export const getTechnicianServiceById = async (req, res) => {
     const { id } = req.params;
-    const { data, error } = await supabase.from('technician_services').select('*').eq('id', id).single();
+    const { data, error } = await supabase.from('technician_services').select('*').eq('id', id).maybeSingle();
     if (error) throw new ApiError(500, error.message);
     if (!data) throw new ApiError(404, 'Technician service not found', { expose: true });
     res.json(data);

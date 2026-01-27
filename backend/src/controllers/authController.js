@@ -13,13 +13,20 @@ export const register = async (req, res) => {
     
     const { name, email, password, role } = req.body;
 
+    if (!JWT_SECRET || !JWT_EXPIRY) {
+        throw new ApiError(500, 'Server auth configuration is missing');
+    }
+
     // Check if user already exists
     const { data: existingUser, error: checkError } = await supabase
         .from("users")
         .select("id")
         .eq("email", email)
-        .single();
+        .maybeSingle();
 
+    if (checkError) {
+        throw new ApiError(500, checkError.message);
+    }
     if (existingUser) {
         throw new ApiError(409, 'Email already registered', { expose: true });
     }
@@ -59,13 +66,18 @@ export const login = async (req, res) => {
     
     const { email, password } = req.body;
 
+    if (!JWT_SECRET || !JWT_EXPIRY) {
+        throw new ApiError(500, 'Server auth configuration is missing');
+    }
+
     // Find user
     const { data: user, error } = await supabase
         .from("users")
         .select("id, name, email, password, role")
         .eq("email", email)
-        .single();
+        .maybeSingle();
 
+    if (error) throw new ApiError(500, error.message);
     if (!user) {
         throw new ApiError(401, 'Invalid email or password', { expose: true });
     }
@@ -105,7 +117,7 @@ export const getCurrentUser = async (req, res) => {
         .from("users")
         .select('id, name, email, role, created_at')
         .eq("id", userId)
-        .single();
+        .maybeSingle();
 
     if (error) throw new ApiError(500, error.message);
     if (!data) throw new ApiError(404, 'User not found', { expose: true });
@@ -131,6 +143,9 @@ export const verifyToken = async (req, res) => {
     
     const token = req.body.token || req.headers.authorization?.split(' ')[1];
 
+    if (!JWT_SECRET) {
+        throw new ApiError(500, 'Server auth configuration is missing');
+    }
     if (!token) {
         throw new ApiError(401, 'No token provided', { expose: true });
     }

@@ -1,7 +1,7 @@
 import express from 'express'
 import catchAsync from '../utils/catchAsync.js'
 import validate from '../middleware/validate.js'
-import { verifyAuth } from '../middleware/auth.js'
+import { verifyAuth, authorize } from '../middleware/auth.js'
 import { userSchemas } from '../validation/schemas.js'
 import {
   getAllUsers,
@@ -15,12 +15,12 @@ import {
 
 const router = express.Router()
 
-router.get('/', catchAsync(getAllUsers))
-router.get('/technicians', catchAsync(getTechnicians))
-router.get('/customers', catchAsync(getCustomers))
-router.get('/:id', catchAsync(getUserById))
-router.post('/', validate(userSchemas.create), verifyAuth, catchAsync(createUser))
-router.put('/:id', validate(userSchemas.update), verifyAuth, catchAsync(updateUser))
-router.delete('/:id', verifyAuth, catchAsync(deleteUser))
+router.get('/', verifyAuth, authorize('admin'), catchAsync(getAllUsers))
+router.get('/technicians', verifyAuth, authorize('admin'), catchAsync(getTechnicians))
+router.get('/customers', verifyAuth, authorize('admin'), catchAsync(getCustomers))
+router.get('/:id', verifyAuth, authorize('admin'), catchAsync(getUserById))
+router.post('/', validate(userSchemas.create), verifyAuth, authorize('admin'), catchAsync(createUser))
+router.put('/:id', validate(userSchemas.update), verifyAuth, authorize('admin'), catchAsync(updateUser))
+router.delete('/:id', verifyAuth, authorize('admin'), catchAsync(deleteUser))
 
 export default router

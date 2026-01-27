@@ -61,14 +61,14 @@ export const userSchemas = {
     email: Joi.string().email().required().max(255).messages({
       'string.email': 'Must be a valid email address',
     }),
-    role: Joi.string().valid('technician', 'customer').required().messages({
-      'any.only': 'Role must be either "technician" or "customer"',
+    role: Joi.string().valid('technician', 'customer', 'admin').required().messages({
+      'any.only': 'Role must be either "technician", "customer", or "admin"',
     }),
   }),
   update: Joi.object({
     name: Joi.string().max(255).optional(),
     email: Joi.string().email().max(255).optional(),
-    role: Joi.string().valid('technician', 'customer').optional(),
+    role: Joi.string().valid('technician', 'customer', 'admin').optional(),
   }).min(1),
 };
 

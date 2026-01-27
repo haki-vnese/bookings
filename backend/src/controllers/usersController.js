@@ -10,7 +10,7 @@ export const getAllUsers = async (req, res) => {
 
 export const getUserById = async (req, res) => {
         const { id } = req.params;
-        const { data, error } = await supabase.from("users").select("id, name, email, role, created_at").eq("id", id).single();
+        const { data, error } = await supabase.from("users").select("id, name, email, role, created_at").eq("id", id).maybeSingle();
 
         if (error) throw new ApiError(500, error.message);
         if (!data) throw new ApiError(404, 'User not found', { expose: true });

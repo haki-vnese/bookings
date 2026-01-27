@@ -8,6 +8,9 @@ import ApiError from '../utils/ApiError.js';
 export const verifyAuth = (req, res, next) => {
     try {
         const JWT_SECRET = process.env.JWT_SECRET;
+        if (!JWT_SECRET) {
+            throw new ApiError(500, 'Server auth configuration is missing');
+        }
         
         const authHeader = req.headers.authorization;
         const token = authHeader?.split(' ')[1];
