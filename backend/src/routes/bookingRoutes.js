@@ -1,7 +1,7 @@
 import express from 'express';
 import catchAsync from '../utils/catchAsync.js';
 import validate from '../middleware/validate.js';
-import { verifyAuth } from '../middleware/auth.js';
+import { verifyAuth, authorize } from '../middleware/auth.js';
 import { bookingSchemas } from '../validation/schemas.js';
 import {
     getAllBookings,
@@ -15,11 +15,11 @@ import {
 
 const router = express.Router();
 
-router.get('/', catchAsync(getAllBookings));
+router.get('/', verifyAuth, authorize('admin'), catchAsync(getAllBookings));
 // more specific routes must come before the param route '/:id'
-router.get('/technician/:technicianId', catchAsync(getBookingByTechnician));
-router.get('/customer/:customerId', catchAsync(getBookingByCustomer));
-router.get('/:id', catchAsync(getBookingById));
+router.get('/technician/:technicianId', verifyAuth, catchAsync(getBookingByTechnician));
+router.get('/customer/:customerId', verifyAuth, catchAsync(getBookingByCustomer));
+router.get('/:id', verifyAuth, catchAsync(getBookingById));
 router.post('/', validate(bookingSchemas.create), verifyAuth, catchAsync(createBooking));
 router.put('/:id', validate(bookingSchemas.update), verifyAuth, catchAsync(updateBooking));
 router.delete('/:id', verifyAuth, catchAsync(deleteBooking));

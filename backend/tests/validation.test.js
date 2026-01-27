@@ -64,7 +64,7 @@ afterAll(async () => {
 describe('input validation middleware', () => {
   describe('POST /api/services (create service)', () => {
     test('valid service -> creates and returns 201', async () => {
-      const token = await getValidToken();
+      const token = await getAdminToken();
       // This test assumes Supabase is mocked or available; we're testing validation layer
       // In a real scenario you'd mock the supabase.from().insert() call
       const res = await request(app)
@@ -199,7 +199,7 @@ describe('input validation middleware', () => {
     });
 
     test('valid booking passes validation', async () => {
-      const token = await getValidToken();
+      const token = await getAdminToken();
       const res = await request(app)
         .post('/api/bookings')
         .set('Authorization', `Bearer ${token}`)
@@ -228,7 +228,7 @@ describe('input validation middleware', () => {
     });
 
     test('partial update with valid data passes validation', async () => {
-      const token = await getValidToken();
+      const token = await getAdminToken();
       const res = await request(app)
         .put('/api/services/550e8400-e29b-41d4-a716-446655440000')
         .set('Authorization', `Bearer ${token}`)

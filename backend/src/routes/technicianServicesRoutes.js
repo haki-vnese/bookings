@@ -1,7 +1,7 @@
 import express from 'express'
 import catchAsync from '../utils/catchAsync.js'
 import validate from '../middleware/validate.js'
-import { verifyAuth } from '../middleware/auth.js'
+import { verifyAuth, authorize } from '../middleware/auth.js'
 import { technicianServiceSchemas } from '../validation/schemas.js'
 import {
   getAllTechnicianServices,
@@ -12,9 +12,9 @@ import {
 
 const router = express.Router()
 
-router.get('/', catchAsync(getAllTechnicianServices)) 
-router.get('/:id', catchAsync(getTechnicianServiceById))
-router.post('/', validate(technicianServiceSchemas.create), verifyAuth, catchAsync(createTechnicianService))
-router.delete('/:id', verifyAuth, catchAsync(deleteTechnicianService))
+router.get('/', verifyAuth, authorize('admin'), catchAsync(getAllTechnicianServices)) 
+router.get('/:id', verifyAuth, authorize('admin'), catchAsync(getTechnicianServiceById))
+router.post('/', validate(technicianServiceSchemas.create), verifyAuth, authorize('admin'), catchAsync(createTechnicianService))
+router.delete('/:id', verifyAuth, authorize('admin'), catchAsync(deleteTechnicianService))
 
 export default router
