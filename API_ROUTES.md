@@ -587,6 +587,21 @@ curl -X GET http://localhost:8000/api/bookings/customer/{customerId}
 
 ---
 
+## Access Control Notes (Updated)
+
+- Services: `POST/PUT/DELETE /api/services` require admin. Reads are public.
+- Users: all `/api/users` endpoints require admin. Admins can create users with role `technician`, `customer`, or `admin`.
+- Technician services: all `/api/technician-services` endpoints require admin.
+- Bookings:
+  - `GET /api/bookings` admin only.
+  - `GET /api/bookings/:id` admin or owning customer or assigned technician.
+  - `GET /api/bookings/technician/:technicianId` admin or that technician.
+  - `GET /api/bookings/customer/:customerId` admin or that customer.
+  - `POST /api/bookings` admin or owning customer (customer_id must match token).
+  - `PUT/DELETE /api/bookings/:id` admin or owning customer.
+
+---
+
 ## Environment Setup
 
 Make sure your `.env` file has:
