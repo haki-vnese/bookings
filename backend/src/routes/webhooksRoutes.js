@@ -23,7 +23,7 @@ async function processForminatorPayload(body) {
   const customerIdInput = getAny(normalized, ['customer_id', 'customerId']);
   const customerName = getAny(normalized, ['name_1', 'name', 'customer_name', 'customerName']);
   const customerEmailRaw = getAny(normalized, ['email_1', 'email', 'customer_email', 'customerEmail']);
-  const note = String(getAny(normalized, ['textarea_1', 'note', 'notes', 'message']) || '');
+  const notes = String(getAny(normalized, ['textarea_1', 'notes', 'note', 'message']) || '');
 
   const serviceCandidates = collectSelectionCandidates(normalized, [
     'service_id',
@@ -85,11 +85,43 @@ async function processForminatorPayload(body) {
     service_id: service.id,
     start_time: startTime,
     end_time: endTime,
-    note,
+    notes,
   };
 
   const { error } = await supabase.from('bookings').insert([booking]);
-  if (error) throw error;
+  if (!error) return;
+
+  if (isMissingColumnError(error, 'notes')) {
+    const bookingWithNote = {
+      technician_id: technicianId,
+      customer_id: customerId,
+      service_id: service.id,
+      start_time: startTime,
+      end_time: endTime,
+      note: notes,
+    };
+
+    const { error: noteFallbackError } = await supabase.from('bookings').insert([bookingWithNote]);
+    if (!noteFallbackError) return;
+
+    if (!isMissingColumnError(noteFallbackError, 'note')) {
+      throw noteFallbackError;
+    }
+
+    const bookingWithoutNotes = {
+      technician_id: technicianId,
+      customer_id: customerId,
+      service_id: service.id,
+      start_time: startTime,
+      end_time: endTime,
+    };
+
+    const { error: plainFallbackError } = await supabase.from('bookings').insert([bookingWithoutNotes]);
+    if (!plainFallbackError) return;
+    throw plainFallbackError;
+  }
+
+  throw error;
 }
 
 function normalizePayload(input) {
@@ -406,6 +438,13 @@ function validateTimeParts(hours, minutes) {
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
     throw new Error('Invalid time format');
   }
+}
+
+function isMissingColumnError(error, columnName) {
+  if (!error) return false;
+  const message = String(error.message || '').toLowerCase();
+  const code = String(error.code || '').toUpperCase();
+  return code === 'PGRST204' && message.includes(`'${String(columnName).toLowerCase()}' column`);
 }
 
 export default router;
