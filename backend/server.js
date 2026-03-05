@@ -30,10 +30,6 @@ app.use('/api/technician-services', technicianServicesRouter);
 app.use('/api/bookings', bookingRouter);
 app.use('/api/availability', availabilityRouter);
 app.use('/webhooks', webhookRouter); // add this before notFound
-app.post('/webhooks/forminator', (req, res) => {
-  console.log('Webhook hit:', req.headers['content-type'], req.body);
-  return res.status(200).json({ ok: true });
-});
 
 // 404 handler
 app.use(notFound);
