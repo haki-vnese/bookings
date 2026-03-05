@@ -25,27 +25,38 @@ async function processForminatorPayload(body) {
   const customerEmailRaw = getAny(normalized, ['email_1', 'email', 'customer_email', 'customerEmail']);
   const note = String(getAny(normalized, ['textarea_1', 'note', 'notes', 'message']) || '');
 
-  const serviceSelection = firstSelection(
-    getAny(normalized, ['select_1', 'service_id', 'service', 'service_name'])
-  );
-  const technicianSelection = firstSelection(
-    getAny(normalized, ['select_2', 'technician_id', 'technician', 'technician_name'])
-  );
+  const serviceCandidates = collectSelectionCandidates(normalized, [
+    'service_id',
+    'service',
+    'service_name',
+    'service_label',
+    'select_1_label',
+    'select_1_text',
+    'select_1',
+  ]);
+
+  const technicianCandidates = collectSelectionCandidates(normalized, [
+    'technician_id',
+    'technician',
+    'technician_name',
+    'technician_label',
+    'select_2_label',
+    'select_2_text',
+    'select_2',
+  ]);
 
   const appointmentDate = getAny(normalized, ['date_1', 'appointment_date', 'date']);
   const timeHours = getAny(normalized, ['time_1_hours', 'hours']);
   const timeMinutes = getAny(normalized, ['time_1_minutes', 'minutes']);
   const flatTime = getAny(normalized, ['time_1', 'appointment_time', 'time']);
 
-  const customerEmail = typeof customerEmailRaw === 'string'
-    ? customerEmailRaw.trim().toLowerCase()
-    : null;
+  const customerEmail = typeof customerEmailRaw === 'string' ? customerEmailRaw.trim().toLowerCase() : null;
   const customerNameClean = typeof customerName === 'string' ? customerName.trim() : '';
 
-  if (!serviceSelection || !technicianSelection || !appointmentDate) {
+  if (serviceCandidates.length === 0 || technicianCandidates.length === 0 || !appointmentDate) {
     console.warn('Skipping webhook: missing required booking fields', {
-      servicePresent: Boolean(serviceSelection),
-      technicianPresent: Boolean(technicianSelection),
+      servicePresent: serviceCandidates.length > 0,
+      technicianPresent: technicianCandidates.length > 0,
       appointmentDatePresent: Boolean(appointmentDate),
     });
     return;
@@ -61,8 +72,9 @@ async function processForminatorPayload(body) {
     email: customerEmail,
     name: customerNameClean || customerEmail,
   });
-  const service = await resolveService(serviceSelection);
-  const technicianId = await resolveTechnician(technicianSelection);
+
+  const service = await resolveService(serviceCandidates);
+  const technicianId = await resolveTechnician(technicianCandidates);
   const startTime = toIsoStartTime(appointmentDate, timeHours, timeMinutes, flatTime);
   const durationMinutes = Number(service.duration_minutes || 60);
   const endTime = new Date(Date.parse(startTime) + durationMinutes * 60000).toISOString();
@@ -114,22 +126,55 @@ function getAny(obj, keys) {
   return null;
 }
 
-function firstSelection(value) {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] || null;
+function collectSelectionCandidates(obj, keys) {
+  const values = [];
+
+  for (const key of keys) {
+    pushSelectionValue(values, obj?.[key]);
+  }
+
+  return [...new Set(values.filter((value) => value && String(value).trim() !== ''))];
+}
+
+function pushSelectionValue(output, value) {
+  if (value === null || value === undefined || value === '') return;
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      pushSelectionValue(output, item);
+    }
+    return;
+  }
+
+  if (typeof value === 'object') {
+    pushSelectionValue(output, value.id);
+    pushSelectionValue(output, value.value);
+    pushSelectionValue(output, value.label);
+    pushSelectionValue(output, value.text);
+    pushSelectionValue(output, value.name);
+    return;
+  }
+
   if (typeof value === 'string') {
     const trimmed = value.trim();
-    if (trimmed.startsWith('[')) {
+    if (!trimmed) return;
+
+    if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
       try {
-        const arr = JSON.parse(trimmed);
-        return Array.isArray(arr) ? arr[0] || null : trimmed;
+        const parsed = JSON.parse(trimmed);
+        pushSelectionValue(output, parsed);
+        return;
       } catch {
-        return trimmed;
+        output.push(trimmed);
+        return;
       }
     }
-    return trimmed;
+
+    output.push(trimmed);
+    return;
   }
-  return String(value);
+
+  output.push(String(value));
 }
 
 function parseMapEnv(envName) {
@@ -142,6 +187,25 @@ function parseMapEnv(envName) {
     console.warn(`${envName} must be valid JSON`);
     return {};
   }
+}
+
+function withMappedValues(values, map) {
+  const out = [];
+  for (const value of values) {
+    const key = String(value).trim();
+    if (!key) continue;
+
+    out.push(key);
+
+    const normalized = key.toLowerCase();
+    const underscored = normalized.replace(/\s+/g, '_');
+
+    if (map[key]) out.push(String(map[key]).trim());
+    if (map[normalized]) out.push(String(map[normalized]).trim());
+    if (map[underscored]) out.push(String(map[underscored]).trim());
+  }
+
+  return [...new Set(out.filter(Boolean))];
 }
 
 async function resolveCustomer({ customerId, email, name }) {
@@ -178,46 +242,87 @@ async function resolveCustomer({ customerId, email, name }) {
   return created.id;
 }
 
-async function resolveService(selection) {
+async function resolveService(candidates) {
   const serviceMap = parseMapEnv('FORMINATOR_SERVICE_MAP');
-  const mapped = serviceMap[selection] || serviceMap[String(selection).toLowerCase?.()];
-  const key = mapped || selection;
+  const valuesToTry = withMappedValues(candidates, serviceMap);
 
-  let query = supabase.from('services').select('id, name, duration_minutes');
-  if (isUuid(key)) {
-    query = query.eq('id', key);
-  } else {
-    query = query.ilike('name', key);
+  for (const value of valuesToTry) {
+    if (!isUuid(value)) continue;
+
+    const { data, error } = await supabase
+      .from('services')
+      .select('id, name, duration_minutes')
+      .eq('id', value)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
   }
 
-  const { data, error } = await query.maybeSingle();
-  if (error) throw error;
-  if (!data) {
-    throw new Error(`Service not found for selection: ${selection}`);
+  for (const value of valuesToTry) {
+    const { data, error } = await supabase
+      .from('services')
+      .select('id, name, duration_minutes')
+      .ilike('name', value)
+      .limit(2);
+    if (error) throw error;
+    if (data?.length === 1) return data[0];
+    if (data?.length > 1) {
+      throw new Error(
+        `Service selection is ambiguous for '${value}'. Set FORMINATOR_SERVICE_MAP, e.g. {"one":"<service-uuid>"}.`
+      );
+    }
   }
-  return data;
+
+  for (const value of valuesToTry) {
+    const { data, error } = await supabase
+      .from('services')
+      .select('id, name, duration_minutes')
+      .ilike('name', `%${value}%`)
+      .limit(2);
+    if (error) throw error;
+    if (data?.length === 1) return data[0];
+  }
+
+  throw new Error(
+    `Service not found for selection: ${candidates[0]}. Set FORMINATOR_SERVICE_MAP, e.g. {"one":"<service-uuid>"}.`
+  );
 }
 
-async function resolveTechnician(selection) {
+async function resolveTechnician(candidates) {
   const techMap = parseMapEnv('FORMINATOR_TECHNICIAN_MAP');
-  const mapped = techMap[selection] || techMap[String(selection).toLowerCase?.()];
-  const key = mapped || selection;
+  const valuesToTry = withMappedValues(candidates, techMap);
 
-  let query = supabase.from('users').select('id, name, email').eq('role', 'technician');
-  if (isUuid(key)) {
-    query = query.eq('id', key);
-  } else if (String(key).includes('@')) {
-    query = query.ilike('email', String(key));
-  } else {
-    query = query.ilike('name', String(key));
+  for (const value of valuesToTry) {
+    if (!isUuid(value)) continue;
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, name, email')
+      .eq('role', 'technician')
+      .eq('id', value)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data.id;
   }
 
-  const { data, error } = await query.maybeSingle();
-  if (error) throw error;
-  if (!data) {
-    throw new Error(`Technician not found for selection: ${selection}`);
+  for (const value of valuesToTry) {
+    const query = supabase.from('users').select('id, name, email').eq('role', 'technician');
+    const { data, error } = String(value).includes('@')
+      ? await query.ilike('email', String(value)).limit(2)
+      : await query.ilike('name', String(value)).limit(2);
+
+    if (error) throw error;
+    if (data?.length === 1) return data[0].id;
+    if (data?.length > 1) {
+      throw new Error(
+        `Technician selection is ambiguous for '${value}'. Set FORMINATOR_TECHNICIAN_MAP, e.g. {"one":"<technician-uuid>"}.`
+      );
+    }
   }
-  return data.id;
+
+  throw new Error(
+    `Technician not found for selection: ${candidates[0]}. Set FORMINATOR_TECHNICIAN_MAP, e.g. {"one":"<technician-uuid>"}.`
+  );
 }
 
 function toIsoStartTime(dateString, hours, minutes, flatTime) {
@@ -243,8 +348,8 @@ function toIsoStartTime(dateString, hours, minutes, flatTime) {
 }
 
 function resolveHourMinute(hours, minutes, flatTime) {
-  let parsedHours = Number(hours);
-  let parsedMinutes = Number(minutes);
+  const parsedHours = Number(hours);
+  const parsedMinutes = Number(minutes);
 
   if (Number.isFinite(parsedHours) && Number.isFinite(parsedMinutes)) {
     validateTimeParts(parsedHours, parsedMinutes);
@@ -259,30 +364,26 @@ function parseFlatTime(value) {
 
   const ampmMatch = source.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
   if (ampmMatch) {
-    let hours = Number(ampmMatch[1]);
-    const mins = Number(ampmMatch[2]);
+    let parsedHours = Number(ampmMatch[1]);
+    const parsedMinutes = Number(ampmMatch[2]);
     const meridiem = ampmMatch[3];
 
-    if (hours === 12) {
-      hours = meridiem === 'AM' ? 0 : 12;
+    if (parsedHours === 12) {
+      parsedHours = meridiem === 'AM' ? 0 : 12;
     } else if (meridiem === 'PM') {
-      hours += 12;
+      parsedHours += 12;
     }
 
-    validateTimeParts(hours, mins);
-
-    return { hours, minutes: mins };
+    validateTimeParts(parsedHours, parsedMinutes);
+    return { hours: parsedHours, minutes: parsedMinutes };
   }
 
   const match24h = source.match(/^(\d{1,2}):(\d{2})$/);
   if (match24h) {
-    const hours = Number(match24h[1]);
-    const minutes = Number(match24h[2]);
-    validateTimeParts(hours, minutes);
-    return {
-      hours,
-      minutes,
-    };
+    const parsedHours = Number(match24h[1]);
+    const parsedMinutes = Number(match24h[2]);
+    validateTimeParts(parsedHours, parsedMinutes);
+    return { hours: parsedHours, minutes: parsedMinutes };
   }
 
   if (!source) {
