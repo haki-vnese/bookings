@@ -73,55 +73,27 @@ async function processForminatorPayload(body) {
     name: customerNameClean || customerEmail,
   });
 
-  const service = await resolveService(serviceCandidates);
+  const services = await resolveServices(serviceCandidates);
   const technicianId = await resolveTechnician(technicianCandidates);
   const startTime = toIsoStartTime(appointmentDate, timeHours, timeMinutes, flatTime);
-  const durationMinutes = Number(service.duration_minutes || 60);
-  const endTime = new Date(Date.parse(startTime) + durationMinutes * 60000).toISOString();
+  let cursorMs = Date.parse(startTime);
 
-  const booking = {
-    technician_id: technicianId,
-    customer_id: customerId,
-    service_id: service.id,
-    start_time: startTime,
-    end_time: endTime,
-    notes,
-  };
+  for (const service of services) {
+    const durationMinutes = Number(service.duration_minutes || 60);
+    const segmentStart = new Date(cursorMs).toISOString();
+    const segmentEnd = new Date(cursorMs + durationMinutes * 60000).toISOString();
 
-  const { error } = await supabase.from('bookings').insert([booking]);
-  if (!error) return;
-
-  if (isMissingColumnError(error, 'notes')) {
-    const bookingWithNote = {
+    const bookingBase = {
       technician_id: technicianId,
       customer_id: customerId,
       service_id: service.id,
-      start_time: startTime,
-      end_time: endTime,
-      note: notes,
+      start_time: segmentStart,
+      end_time: segmentEnd,
     };
 
-    const { error: noteFallbackError } = await supabase.from('bookings').insert([bookingWithNote]);
-    if (!noteFallbackError) return;
-
-    if (!isMissingColumnError(noteFallbackError, 'note')) {
-      throw noteFallbackError;
-    }
-
-    const bookingWithoutNotes = {
-      technician_id: technicianId,
-      customer_id: customerId,
-      service_id: service.id,
-      start_time: startTime,
-      end_time: endTime,
-    };
-
-    const { error: plainFallbackError } = await supabase.from('bookings').insert([bookingWithoutNotes]);
-    if (!plainFallbackError) return;
-    throw plainFallbackError;
+    await insertBookingWithNotesFallback(bookingBase, notes);
+    cursorMs += durationMinutes * 60000;
   }
-
-  throw error;
 }
 
 function normalizePayload(input) {
@@ -340,6 +312,28 @@ async function resolveService(candidates) {
   );
 }
 
+async function resolveServices(candidates) {
+  const resolvedById = new Map();
+
+  for (const candidate of candidates) {
+    try {
+      const service = await resolveService([candidate]);
+      if (service?.id && !resolvedById.has(service.id)) {
+        resolvedById.set(service.id, service);
+      }
+    } catch (error) {
+      if (!isServiceResolutionFailure(error)) throw error;
+    }
+  }
+
+  if (resolvedById.size === 0) {
+    const fallback = await resolveService(candidates);
+    resolvedById.set(fallback.id, fallback);
+  }
+
+  return [...resolvedById.values()];
+}
+
 async function resolveTechnician(candidates) {
   const techMap = parseMapEnv('FORMINATOR_TECHNICIAN_MAP');
   const valuesToTry = withMappedValues(candidates, techMap);
@@ -465,6 +459,34 @@ function isMissingColumnError(error, columnName) {
   const message = String(error.message || '').toLowerCase();
   const code = String(error.code || '').toUpperCase();
   return code === 'PGRST204' && message.includes(`'${String(columnName).toLowerCase()}' column`);
+}
+
+function isServiceResolutionFailure(error) {
+  const message = String(error?.message || '');
+  return message.startsWith('Service not found for selection:');
+}
+
+async function insertBookingWithNotesFallback(bookingBase, notes) {
+  const bookingWithNotes = { ...bookingBase, notes };
+  const { error } = await supabase.from('bookings').insert([bookingWithNotes]);
+  if (!error) return;
+
+  if (!isMissingColumnError(error, 'notes')) {
+    throw error;
+  }
+
+  const bookingWithNote = { ...bookingBase, note: notes };
+  const { error: noteFallbackError } = await supabase.from('bookings').insert([bookingWithNote]);
+  if (!noteFallbackError) return;
+
+  if (!isMissingColumnError(noteFallbackError, 'note')) {
+    throw noteFallbackError;
+  }
+
+  const { error: plainFallbackError } = await supabase.from('bookings').insert([bookingBase]);
+  if (plainFallbackError) {
+    throw plainFallbackError;
+  }
 }
 
 export default router;
