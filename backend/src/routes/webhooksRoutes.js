@@ -229,15 +229,35 @@ function withMappedValues(values, map) {
 
     out.push(key);
 
-    const normalized = key.toLowerCase();
-    const underscored = normalized.replace(/\s+/g, '_');
-
-    if (map[key]) out.push(String(map[key]).trim());
-    if (map[normalized]) out.push(String(map[normalized]).trim());
-    if (map[underscored]) out.push(String(map[underscored]).trim());
+    for (const lookupKey of buildLookupKeys(key)) {
+      if (!Object.prototype.hasOwnProperty.call(map, lookupKey)) continue;
+      const mappedValue = String(map[lookupKey] || '').trim();
+      if (mappedValue) out.push(mappedValue);
+    }
   }
 
   return [...new Set(out.filter(Boolean))];
+}
+
+function buildLookupKeys(value) {
+  const source = String(value || '').trim();
+  if (!source) return [];
+
+  const lower = source.toLowerCase();
+  const underscored = lower.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const dashed = lower.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const compact = lower.replace(/[^a-z0-9]+/g, '');
+
+  const keys = new Set([source, lower, underscored, dashed, compact]);
+  const optionMatch = lower.match(/^option[-_\s]?(\d+)$/);
+  if (optionMatch) {
+    const index = optionMatch[1];
+    keys.add(index);
+    keys.add(`option_${index}`);
+    keys.add(`option-${index}`);
+  }
+
+  return [...keys].filter(Boolean);
 }
 
 async function resolveCustomer({ customerId, email, name }) {
