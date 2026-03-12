@@ -22,6 +22,25 @@ app.use(cors({
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Basic probe endpoints to reduce noisy 404s when opening backend URL in browser.
+app.get('/', (req, res) => {
+    const entryUrl = process.env.DASHBOARD_ENTRY_URL;
+    if (entryUrl) {
+        return res.redirect(302, entryUrl);
+    }
+
+    res.status(200).json({
+        status: 'ok',
+        service: 'nail-salon-booking-api',
+        hint: 'https://booking.hairtasticheadspa.ca/dashboard/'
+    });
+});
+
+app.get('/favicon.ico', (req, res) => {
+    res.status(204).end();
+});
+
 // request logging (lightweight)
 app.use(requestLogger);
 app.use('/api/auth', authRouter);
