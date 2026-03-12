@@ -330,6 +330,9 @@ function canProceedWithCollisionWarning(allRows, payload, bookingId, mode) {
   const conflicts = findConflictingBookings(allRows, payload, bookingId);
   if (!conflicts.length) return true;
 
+  // Drag/drop should stay fast; surface conflicts visually instead of blocking movement.
+  if (mode === 'move') return true;
+
   const conflictLabel = conflicts
     .slice(0, 3)
     .map((row) => new Date(row.start_time || '').toLocaleString())

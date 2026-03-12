@@ -6,6 +6,69 @@ const isAdmin = (req) => req.user?.role === 'admin' || isSuperuser(req);
 const isTechnician = (req) => req.user?.role === 'staff';
 const isCustomer = (req) => req.user?.role === 'customer';
 
+function isMissingColumnError(error, columnName) {
+    if (!error) return false;
+    const message = String(error.message || '').toLowerCase();
+    const code = String(error.code || '').toUpperCase();
+    return code === 'PGRST204' && message.includes(`'${String(columnName).toLowerCase()}' column`);
+}
+
+async function insertBookingWithNotesFallback(booking) {
+    let payload = { ...booking };
+    let { data, error } = await supabase.from('bookings').insert([payload]).select();
+    if (!error) return { data, error: null };
+
+    if ('note' in payload && isMissingColumnError(error, 'note')) {
+        const { note, ...rest } = payload;
+        payload = { ...rest, notes: note };
+        ({ data, error } = await supabase.from('bookings').insert([payload]).select());
+        if (!error) return { data, error: null };
+    }
+
+    if ('notes' in payload && isMissingColumnError(error, 'notes')) {
+        const { notes, ...rest } = payload;
+        payload = { ...rest, note: notes };
+        ({ data, error } = await supabase.from('bookings').insert([payload]).select());
+        if (!error) return { data, error: null };
+    }
+
+    if ((isMissingColumnError(error, 'note') || isMissingColumnError(error, 'notes')) && ('note' in payload || 'notes' in payload)) {
+        const { note, notes, ...rest } = payload;
+        ({ data, error } = await supabase.from('bookings').insert([rest]).select());
+        if (!error) return { data, error: null };
+    }
+
+    return { data, error };
+}
+
+async function updateBookingWithNotesFallback(id, updates) {
+    let payload = { ...updates };
+    let { data, error } = await supabase.from('bookings').update(payload).eq('id', id).select();
+    if (!error) return { data, error: null };
+
+    if ('note' in payload && isMissingColumnError(error, 'note')) {
+        const { note, ...rest } = payload;
+        payload = { ...rest, notes: note };
+        ({ data, error } = await supabase.from('bookings').update(payload).eq('id', id).select());
+        if (!error) return { data, error: null };
+    }
+
+    if ('notes' in payload && isMissingColumnError(error, 'notes')) {
+        const { notes, ...rest } = payload;
+        payload = { ...rest, note: notes };
+        ({ data, error } = await supabase.from('bookings').update(payload).eq('id', id).select());
+        if (!error) return { data, error: null };
+    }
+
+    if ((isMissingColumnError(error, 'note') || isMissingColumnError(error, 'notes')) && ('note' in payload || 'notes' in payload)) {
+        const { note, notes, ...rest } = payload;
+        ({ data, error } = await supabase.from('bookings').update(rest).eq('id', id).select());
+        if (!error) return { data, error: null };
+    }
+
+    return { data, error };
+}
+
 function requireAdminSalon(req) {
     if (req.user?.role === 'admin' && !req.user?.salon_id) {
         throw new ApiError(403, 'Admin account is missing salon scope', { expose: true });
@@ -149,7 +212,7 @@ export const createBooking = async (req, res) => {
             throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
         }
     }
-    const { data, error } = await supabase.from('bookings').insert([booking]).select();
+    const { data, error } = await insertBookingWithNotesFallback(booking);
     
     if (error) throw new ApiError(500, error.message);
     res.status(201).json(data);
@@ -172,7 +235,7 @@ export const updateBooking = async (req, res) => {
             throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
         }
     }
-    const { data, error } = await supabase.from('bookings').update(updates).eq('id', id).select();
+    const { data, error } = await updateBookingWithNotesFallback(id, updates);
 
     if (error) throw new ApiError(500, error.message);
     if (!data || data.length === 0) throw new ApiError(404, 'Booking not found', { expose: true });
