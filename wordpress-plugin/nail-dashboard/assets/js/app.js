@@ -18,7 +18,6 @@ import { renderBookingsPanel, bindBookingsEvents } from './features/bookings.js'
 import { renderCustomersPanel, bindCustomersEvents } from './features/customers.js';
 import { renderUsersPanel, bindUsersEvents } from './features/users.js';
 import { renderServicesPanel, bindServicesEvents } from './features/services.js';
-import { renderIntegrationPanel } from './features/integration.js';
 
 const app = document.getElementById('nd-app');
 const config = window.ND_CONFIG || { apiBaseUrl: '' };
@@ -48,7 +47,6 @@ function renderPanel() {
   if (state.active === 'customers') return renderCustomersPanel(state, helpers);
   if (state.active === 'users') return renderUsersPanel(state, helpers);
   if (state.active === 'services') return renderServicesPanel(state, helpers);
-  if (state.active === 'integration') return renderIntegrationPanel(state, helpers);
 
   return `<section class="nd-panel"><p>Module coming soon.</p></section>`;
 }
@@ -56,7 +54,7 @@ function renderPanel() {
 function renderShell() {
   const user = state.user || {};
   const role = String(user.role || '').toLowerCase();
-  const salon = user.salon_id || 'global';
+  const salon = user.salon_name || user.salon_id || 'global';
   const manage = canManage(role);
 
   app.innerHTML = `
@@ -70,7 +68,6 @@ function renderShell() {
           <button data-view="customers" class="nd-nav ${state.active === 'customers' ? 'active' : ''}">Customers</button>
           <button data-view="users" class="nd-nav ${state.active === 'users' ? 'active' : ''}" ${manage ? '' : 'disabled'}>Staff</button>
           <button data-view="services" class="nd-nav ${state.active === 'services' ? 'active' : ''}">Services</button>
-          <button data-view="integration" class="nd-nav ${state.active === 'integration' ? 'active' : ''}">Integration</button>
         </nav>
       </aside>
 

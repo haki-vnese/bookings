@@ -459,6 +459,17 @@ h3,
   color: var(--nd-color-muted);
 }
 
+.nd-bundle-badge {
+  margin-top: 6px;
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  border: 1px solid color-mix(in srgb, var(--nd-color-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--nd-color-accent) 14%, transparent);
+  color: var(--nd-color-accent);
+}
+
 .nd-calendar-card::after {
   content: attr(data-tooltip);
   position: absolute;
@@ -549,6 +560,11 @@ h3,
 
 .nd-row-conflict td {
   background: color-mix(in srgb, var(--nd-color-danger) 6%, transparent);
+}
+
+.nd-bundle-inline {
+  color: var(--nd-color-muted);
+  font-size: 0.78rem;
 }
 
 .nd-panel ul {

@@ -163,15 +163,134 @@ function buildConflictSet(rows) {
   return conflictSet;
 }
 
-function buildTooltip(row, maps, getEntityLabel, hasConflict) {
+function normalizeNote(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getDurationMinutes(row) {
+  const start = new Date(row.start_time || '');
+  const end = new Date(row.end_time || '');
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  const diff = Math.max(0, end.getTime() - start.getTime());
+  return Math.round(diff / 60000);
+}
+
+function buildBundleMeta(rows, maps, getEntityLabel) {
+  const sorted = [...rows].sort((a, b) => new Date(a.start_time || 0).getTime() - new Date(b.start_time || 0).getTime());
+  const bundleByBookingId = new Map();
+
+  let current = null;
+  let bundleSeq = 1;
+
+  for (const row of sorted) {
+    const start = new Date(row.start_time || '');
+    const end = new Date(row.end_time || '');
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+
+    const key = [
+      String(row.technician_id || ''),
+      String(row.customer_id || ''),
+      normalizeNote(row.note || row.notes),
+      start.toISOString().slice(0, 10),
+    ].join('|');
+
+    const continuesCurrent =
+      current &&
+      current.key === key &&
+      Math.abs(start.getTime() - current.lastEndMs) <= 5 * 60 * 1000;
+
+    if (!continuesCurrent) {
+      current = {
+        key,
+        id: `bundle-${bundleSeq}`,
+        rows: [],
+        lastEndMs: end.getTime(),
+      };
+      bundleSeq += 1;
+    } else {
+      current.lastEndMs = end.getTime();
+    }
+
+    current.rows.push(row);
+  }
+
+  // Build metadata for bundles only when they represent multiple split service lines.
+  const bundles = new Map();
+  sorted.forEach((row) => {
+    const start = new Date(row.start_time || '');
+    const end = new Date(row.end_time || '');
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+
+    const key = [
+      String(row.technician_id || ''),
+      String(row.customer_id || ''),
+      normalizeNote(row.note || row.notes),
+      start.toISOString().slice(0, 10),
+    ].join('|');
+
+    const existing = bundles.get(key) || [];
+    existing.push(row);
+    bundles.set(key, existing);
+  });
+
+  bundles.forEach((bundleRows) => {
+    const ordered = bundleRows.sort((a, b) => new Date(a.start_time || 0).getTime() - new Date(b.start_time || 0).getTime());
+    let chain = [ordered[0]];
+
+    function flushChain() {
+      if (chain.length <= 1) {
+        chain = [];
+        return;
+      }
+
+      const serviceNames = chain.map((item) => getEntityLabel(item.service_id, maps.servicesById, item.service_id));
+      const totalMinutes = chain.reduce((sum, item) => sum + getDurationMinutes(item), 0);
+
+      chain.forEach((item, index) => {
+        bundleByBookingId.set(String(item.id), {
+          index: index + 1,
+          total: chain.length,
+          serviceNames,
+          totalMinutes,
+        });
+      });
+
+      chain = [];
+    }
+
+    for (let i = 1; i < ordered.length; i += 1) {
+      const prev = chain[chain.length - 1];
+      const prevEnd = new Date(prev.end_time || '').getTime();
+      const currentStart = new Date(ordered[i].start_time || '').getTime();
+
+      if (Math.abs(currentStart - prevEnd) <= 5 * 60 * 1000) {
+        chain.push(ordered[i]);
+      } else {
+        flushChain();
+        chain = [ordered[i]];
+      }
+    }
+
+    flushChain();
+  });
+
+  return bundleByBookingId;
+}
+
+function buildTooltip(row, maps, getEntityLabel, hasConflict, bundleMeta) {
   const customer = getEntityLabel(row.customer_id, maps.customersById, row.customer_id);
   const technician = getEntityLabel(row.technician_id, maps.usersById, row.technician_id);
   const service = getEntityLabel(row.service_id, maps.servicesById, row.service_id);
+
+  const bundleLine = bundleMeta
+    ? `Bundle: Service ${bundleMeta.index}/${bundleMeta.total} | Total ${bundleMeta.totalMinutes} min | ${bundleMeta.serviceNames.join(', ')}`
+    : 'Bundle: Single service';
 
   return [
     `Customer: ${customer}`,
     `Technician: ${technician}`,
     `Service: ${service}`,
+    bundleLine,
     `Start: ${new Date(row.start_time || '').toLocaleString()}`,
     `End: ${new Date(row.end_time || '').toLocaleString()}`,
     `Conflict: ${hasConflict ? 'Yes' : 'No'}`,
@@ -256,6 +375,7 @@ export function renderBookingsPanel(state, helpers) {
 
   const conflictSet = buildConflictSet(filteredRows);
   const conflictCount = conflictSet.size;
+  const bundleMetaByBookingId = buildBundleMeta(filteredRows, maps, getEntityLabel);
 
   const viewMode = String(state.filters.booking.viewMode || 'split');
   const showCalendar = viewMode !== 'table';
@@ -345,10 +465,14 @@ export function renderBookingsPanel(state, helpers) {
                   const cards = slotRows
                     .map((row) => {
                       const hasConflict = conflictSet.has(String(row.id));
-                      const tooltip = buildTooltip(row, maps, getEntityLabel, hasConflict);
+                      const bundleMeta = bundleMetaByBookingId.get(String(row.id));
+                      const tooltip = buildTooltip(row, maps, getEntityLabel, hasConflict, bundleMeta);
                       const customer = getEntityLabel(row.customer_id, maps.customersById, row.customer_id);
                       const service = getEntityLabel(row.service_id, maps.servicesById, row.service_id);
                       const technician = getEntityLabel(row.technician_id, maps.usersById, row.technician_id);
+                      const bundleBadge = bundleMeta
+                        ? `<span class="nd-bundle-badge" title="${esc(bundleMeta.serviceNames.join(', '))}">Service ${bundleMeta.index}/${bundleMeta.total}</span>`
+                        : '';
 
                       return `
                         <article
@@ -362,6 +486,7 @@ export function renderBookingsPanel(state, helpers) {
                           <p class="nd-calendar-card-time">${esc(toShortDateTime(row.start_time))}</p>
                           <p class="nd-calendar-card-main">${esc(customer)}</p>
                           <p class="nd-calendar-card-sub">${esc(service)} | ${esc(technician)}</p>
+                          ${bundleBadge}
                         </article>
                       `;
                     })
@@ -409,13 +534,17 @@ export function renderBookingsPanel(state, helpers) {
                     .map((row) => {
                       const isEditing = state.editing.bookingId === row.id;
                       const hasConflict = conflictSet.has(String(row.id));
+                      const bundleMeta = bundleMetaByBookingId.get(String(row.id));
+                      const bundleLabel = bundleMeta
+                        ? ` <span class="nd-bundle-inline">(Service ${bundleMeta.index}/${bundleMeta.total})</span>`
+                        : '';
                       const baseRow = `
                         <tr class="${hasConflict ? 'nd-row-conflict' : ''}">
                           <td>${esc(toShortDateTime(row.start_time))}</td>
                           <td>${esc(toShortDateTime(row.end_time))}</td>
                           <td>${esc(getEntityLabel(row.customer_id, maps.customersById, row.customer_id))}</td>
                           <td>${esc(getEntityLabel(row.technician_id, maps.usersById, row.technician_id))}</td>
-                          <td>${esc(getEntityLabel(row.service_id, maps.servicesById, row.service_id))}</td>
+                          <td>${esc(getEntityLabel(row.service_id, maps.servicesById, row.service_id))}${bundleLabel}</td>
                           <td>
                             ${
                               canMutate
