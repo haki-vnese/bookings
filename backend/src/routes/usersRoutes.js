@@ -9,18 +9,16 @@ import {
   createUser,
   updateUser,
   deleteUser,
-  getTechnicians,
-  getCustomers
+  getStaff
 } from '../controllers/usersController.js'
 
 const router = express.Router()
 
-router.get('/', verifyAuth, authorize('admin'), catchAsync(getAllUsers))
-router.get('/technicians', verifyAuth, authorize('admin'), catchAsync(getTechnicians))
-router.get('/customers', verifyAuth, authorize('admin'), catchAsync(getCustomers))
-router.get('/:id', verifyAuth, authorize('admin'), catchAsync(getUserById))
-router.post('/', validate(userSchemas.create), verifyAuth, authorize('admin'), catchAsync(createUser))
-router.put('/:id', validate(userSchemas.update), verifyAuth, authorize('admin'), catchAsync(updateUser))
-router.delete('/:id', verifyAuth, authorize('admin'), catchAsync(deleteUser))
+router.get('/', verifyAuth, authorize('admin', 'superuser'), catchAsync(getAllUsers))
+router.get('/staff', verifyAuth, authorize('admin', 'superuser'), catchAsync(getStaff))
+router.get('/:id', verifyAuth, authorize('admin', 'superuser'), catchAsync(getUserById))
+router.post('/', validate(userSchemas.create), verifyAuth, authorize('admin', 'superuser'), catchAsync(createUser))
+router.put('/:id', validate(userSchemas.update), verifyAuth, authorize('admin', 'superuser'), catchAsync(updateUser))
+router.delete('/:id', verifyAuth, authorize('admin', 'superuser'), catchAsync(deleteUser))
 
 export default router

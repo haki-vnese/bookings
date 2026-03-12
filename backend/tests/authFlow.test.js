@@ -12,6 +12,8 @@ describe('Authentication Flow', () => {
     let userId;
     let adminToken;
     let adminUserId;
+    let salonId;
+    let managedUserId;
     const testUser = {
         name: 'Test User',
         email: `testuser${Date.now()}@example.com`,
@@ -26,10 +28,24 @@ describe('Authentication Flow', () => {
     };
 
     beforeAll(async () => {
+        const { data: salon, error: salonError } = await supabase
+            .from('salons')
+            .insert({ name: `Auth Flow Salon ${Date.now()}` })
+            .select()
+            .single();
+        if (salonError) throw salonError;
+        salonId = salon.id;
+
         const hashedPassword = await bcrypt.hash(adminUser.password, 10);
         const { data: admin, error } = await supabase
             .from('users')
-            .insert({ name: adminUser.name, email: adminUser.email, password: hashedPassword, role: adminUser.role })
+            .insert({
+                name: adminUser.name,
+                email: adminUser.email,
+                password: hashedPassword,
+                role: adminUser.role,
+                salon_id: salonId,
+            })
             .select()
             .single();
         if (error) throw error;
@@ -45,8 +61,17 @@ describe('Authentication Flow', () => {
     });
 
     afterAll(async () => {
+        if (managedUserId) {
+            await supabase.from('users').delete().eq('id', managedUserId);
+        }
         if (adminUserId) {
             await supabase.from('users').delete().eq('id', adminUserId);
+        }
+        if (userId) {
+            await supabase.from('users').delete().eq('id', userId);
+        }
+        if (salonId) {
+            await supabase.from('salons').delete().eq('id', salonId);
         }
     });
 
@@ -109,11 +134,11 @@ describe('Authentication Flow', () => {
                 .send({
                     ...testUser,
                     email: `roletest${Date.now()}@example.com`,
-                    role: 'admin'
+                    role: 'owner'
                 });
 
             expect(res.status).toBe(400);
-            expect(res.body.error).toContain('technician');
+            expect(res.body.error).toContain('Role must be one of');
         });
     });
 
@@ -228,7 +253,7 @@ describe('Authentication Flow', () => {
                 name: 'New User',
                 email: `newuser${Date.now()}@example.com`,
                 password: 'newpass123',
-                role: 'technician'
+                role: 'staff'
             };
 
             const res = await request(app)
@@ -244,7 +269,7 @@ describe('Authentication Flow', () => {
                 name: 'New User',
                 email: `newuser${Date.now()}@example.com`,
                 password: 'newpass123',
-                role: 'technician'
+                role: 'staff'
             };
 
             const res = await request(app)
@@ -254,6 +279,7 @@ describe('Authentication Flow', () => {
 
             expect(res.status).toBe(201);
             expect(res.body[0]).toHaveProperty('email', newUser.email);
+            managedUserId = res.body[0].id;
         });
 
         it('should reject create user without token', async () => {
@@ -261,7 +287,7 @@ describe('Authentication Flow', () => {
                 name: 'Another User',
                 email: `another${Date.now()}@example.com`,
                 password: 'anotherpass123',
-                role: 'customer'
+                role: 'staff'
             };
 
             const res = await request(app)
@@ -274,7 +300,7 @@ describe('Authentication Flow', () => {
 
         it('should update user when authenticated', async () => {
             const res = await request(app)
-                .put(`/api/users/${userId}`)
+                .put(`/api/users/${managedUserId}`)
                 .set('Authorization', `Bearer ${adminToken}`)
                 .send({ name: 'Updated Name' });
 
@@ -284,7 +310,7 @@ describe('Authentication Flow', () => {
 
         it('should reject update user without token', async () => {
             const res = await request(app)
-                .put(`/api/users/${userId}`)
+                .put(`/api/users/${managedUserId}`)
                 .send({ name: 'Updated Name' });
 
             expect(res.status).toBe(401);
@@ -296,7 +322,7 @@ describe('Authentication Flow', () => {
                 name: 'User to Delete',
                 email: `delete${Date.now()}@example.com`,
                 password: 'deletepass123',
-                role: 'customer'
+                role: 'staff'
             };
 
             const createRes = await request(app)
@@ -349,15 +375,15 @@ describe('Authentication Flow', () => {
 
         it('should not return password in getUserById', async () => {
             const res = await request(app)
-                .get(`/api/users/${userId}`)
+                .get(`/api/users/${managedUserId}`)
                 .set('Authorization', `Bearer ${adminToken}`);
 
             expect(res.body).not.toHaveProperty('password');
         });
 
-        it('should not return password in getTechnicians', async () => {
+        it('should not return password in getStaff', async () => {
             const res = await request(app)
-                .get('/api/users/technicians')
+            .get('/api/users/staff')
                 .set('Authorization', `Bearer ${adminToken}`);
 
             expect(res.body).toBeInstanceOf(Array);
@@ -368,7 +394,7 @@ describe('Authentication Flow', () => {
 
         it('should not return password in getCustomers', async () => {
             const res = await request(app)
-                .get('/api/users/customers')
+                .get('/api/customers')
                 .set('Authorization', `Bearer ${adminToken}`);
 
             expect(res.body).toBeInstanceOf(Array);
@@ -376,5 +402,202 @@ describe('Authentication Flow', () => {
                 expect(user).not.toHaveProperty('password');
             });
         });
+    });
+});
+
+describe('Booking Tenant Isolation', () => {
+    let salonAId;
+    let salonBId;
+    let adminAId;
+    let adminAToken;
+    let superuserId;
+    let superuserToken;
+    let staffBId;
+    let customerBId;
+    let serviceId;
+    let bookingId;
+
+    beforeAll(async () => {
+        const { data: salonA, error: salonAError } = await supabase
+            .from('salons')
+            .insert({ name: `Isolation Salon A ${Date.now()}` })
+            .select()
+            .single();
+        if (salonAError) throw salonAError;
+        salonAId = salonA.id;
+
+        const { data: salonB, error: salonBError } = await supabase
+            .from('salons')
+            .insert({ name: `Isolation Salon B ${Date.now()}` })
+            .select()
+            .single();
+        if (salonBError) throw salonBError;
+        salonBId = salonB.id;
+
+        const adminPassword = 'adminPass123';
+        const adminHashedPassword = await bcrypt.hash(adminPassword, 10);
+        const { data: adminA, error: adminAError } = await supabase
+            .from('users')
+            .insert({
+                name: 'Admin A',
+                email: `admin-a-${Date.now()}@example.com`,
+                password: adminHashedPassword,
+                role: 'admin',
+                salon_id: salonAId,
+            })
+            .select()
+            .single();
+        if (adminAError) throw adminAError;
+        adminAId = adminA.id;
+
+        const superuserPassword = 'superPass123';
+        const superuserHashedPassword = await bcrypt.hash(superuserPassword, 10);
+        const { data: superuser, error: superuserError } = await supabase
+            .from('users')
+            .insert({
+                name: 'Global Superuser',
+                email: `super-${Date.now()}@example.com`,
+                password: superuserHashedPassword,
+                role: 'superuser',
+                salon_id: null,
+            })
+            .select()
+            .single();
+        if (superuserError) throw superuserError;
+        superuserId = superuser.id;
+
+        const adminLoginRes = await request(app)
+            .post('/api/auth/login')
+            .send({ email: adminA.email, password: adminPassword });
+        if (adminLoginRes.status !== 200) {
+            throw new Error('Admin A login failed in tenant isolation setup');
+        }
+        adminAToken = adminLoginRes.body.token;
+
+        const superuserLoginRes = await request(app)
+            .post('/api/auth/login')
+            .send({ email: superuser.email, password: superuserPassword });
+        if (superuserLoginRes.status !== 200) {
+            throw new Error('Superuser login failed in tenant isolation setup');
+        }
+        superuserToken = superuserLoginRes.body.token;
+
+        const { data: staffB, error: staffBError } = await supabase
+            .from('users')
+            .insert({
+                name: 'Staff B',
+                email: `staff-b-${Date.now()}@example.com`,
+                role: 'staff',
+                salon_id: salonBId,
+            })
+            .select()
+            .single();
+        if (staffBError) throw staffBError;
+        staffBId = staffB.id;
+
+        const { data: customerB, error: customerBError } = await supabase
+            .from('customers')
+            .insert({
+                name: 'Customer B',
+                email: `customer-b-${Date.now()}@example.com`,
+                salon_id: salonBId,
+            })
+            .select()
+            .single();
+        if (customerBError) throw customerBError;
+        customerBId = customerB.id;
+
+        const { data: service, error: serviceError } = await supabase
+            .from('services')
+            .insert({
+                name: `Isolation Service ${Date.now()}`,
+                duration_minutes: 30,
+                price: 25,
+            })
+            .select()
+            .single();
+        if (serviceError) throw serviceError;
+        serviceId = service.id;
+
+        const now = new Date();
+        const start = new Date(now.getTime() + 60 * 60000);
+        const end = new Date(start.getTime() + 30 * 60000);
+
+        const { data: booking, error: bookingError } = await supabase
+            .from('bookings')
+            .insert({
+                technician_id: staffBId,
+                customer_id: customerBId,
+                service_id: serviceId,
+                start_time: start.toISOString(),
+                end_time: end.toISOString(),
+            })
+            .select()
+            .single();
+        if (bookingError) throw bookingError;
+        bookingId = booking.id;
+    });
+
+    afterAll(async () => {
+        if (bookingId) {
+            await supabase.from('bookings').delete().eq('id', bookingId);
+        }
+        if (serviceId) {
+            await supabase.from('services').delete().eq('id', serviceId);
+        }
+        if (customerBId) {
+            await supabase.from('customers').delete().eq('id', customerBId);
+        }
+        if (staffBId) {
+            await supabase.from('users').delete().eq('id', staffBId);
+        }
+        if (adminAId) {
+            await supabase.from('users').delete().eq('id', adminAId);
+        }
+        if (superuserId) {
+            await supabase.from('users').delete().eq('id', superuserId);
+        }
+        if (salonAId) {
+            await supabase.from('salons').delete().eq('id', salonAId);
+        }
+        if (salonBId) {
+            await supabase.from('salons').delete().eq('id', salonBId);
+        }
+    });
+
+    it('should deny admin from viewing booking in another salon', async () => {
+        const res = await request(app)
+            .get(`/api/bookings/${bookingId}`)
+            .set('Authorization', `Bearer ${adminAToken}`);
+
+        expect(res.status).toBe(403);
+    });
+
+    it('should deny admin from creating booking in another salon', async () => {
+        const now = new Date();
+        const start = new Date(now.getTime() + 2 * 60 * 60000);
+        const end = new Date(start.getTime() + 30 * 60000);
+
+        const res = await request(app)
+            .post('/api/bookings')
+            .set('Authorization', `Bearer ${adminAToken}`)
+            .send({
+                technician_id: staffBId,
+                customer_id: customerBId,
+                service_id: serviceId,
+                start_time: start.toISOString(),
+                end_time: end.toISOString(),
+            });
+
+        expect(res.status).toBe(403);
+    });
+
+    it('should allow superuser to access cross-salon booking', async () => {
+        const res = await request(app)
+            .get(`/api/bookings/${bookingId}`)
+            .set('Authorization', `Bearer ${superuserToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('id', bookingId);
     });
 });

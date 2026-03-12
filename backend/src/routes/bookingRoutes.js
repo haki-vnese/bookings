@@ -15,7 +15,7 @@ import {
 
 const router = express.Router();
 
-router.get('/', verifyAuth, authorize('admin'), catchAsync(getAllBookings));
+router.get('/', verifyAuth, authorize('admin', 'superuser'), catchAsync(getAllBookings));
 // more specific routes must come before the param route '/:id'
 router.get('/technician/:technicianId', verifyAuth, catchAsync(getBookingByTechnician));
 router.get('/customer/:customerId', verifyAuth, catchAsync(getBookingByCustomer));

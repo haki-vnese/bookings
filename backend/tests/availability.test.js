@@ -3,18 +3,27 @@ import app from '../server.js';
 import { supabase } from '../src/db/supabase.js';
 
 describe('Availability Controller', () => {
-  let technicianId, customerId, serviceId;
+  let technicianId, customerId, serviceId, salonId;
 
   beforeAll(async () => {
+    // Create a test salon for tenant-linked entities
+    const { data: salon, error: salonError } = await supabase
+      .from('salons')
+      .insert({ name: `Test Salon ${Date.now()}` })
+      .select()
+      .single();
+    if (salonError) throw salonError;
+    salonId = salon.id;
+
     // Create test technician
     const { data: tech } = await supabase.from('users')
-      .insert({ name: 'Test Technician', email: `tech-${Date.now()}@test.com`, role: 'technician' })
+      .insert({ name: 'Test Technician', email: `tech-${Date.now()}@test.com`, role: 'staff', salon_id: salonId })
       .select().single();
     technicianId = tech.id;
 
     // Create test customer
-    const { data: cust } = await supabase.from('users')
-      .insert({ name: 'Test Customer', email: `cust-${Date.now()}@test.com`, role: 'customer' })
+    const { data: cust } = await supabase.from('customers')
+      .insert({ name: 'Test Customer', email: `cust-${Date.now()}@test.com`, salon_id: salonId })
       .select().single();
     customerId = cust.id;
 
@@ -31,9 +40,11 @@ describe('Availability Controller', () => {
       .delete()
       .eq('technician_id', technicianId);
     
-    await supabase.from('users')
-      .delete()
-      .or(`id.eq.${technicianId},id.eq.${customerId}`);
+    await supabase.from('users').delete().eq('id', technicianId);
+
+    await supabase.from('customers').delete().eq('id', customerId);
+
+    await supabase.from('salons').delete().eq('id', salonId);
     
     await supabase.from('services')
       .delete()

@@ -15,9 +15,10 @@ export const authSchemas = {
       'string.min': 'Password must be at least 6 characters',
       'string.max': 'Password must be less than 128 characters',
     }),
-    role: Joi.string().valid('technician', 'customer').required().messages({
-      'any.only': 'Role must be either "technician" or "customer"',
+    role: Joi.string().valid('superuser', 'admin', 'staff', 'customer').required().messages({
+      'any.only': 'Role must be one of "superuser", "admin", "staff", or "customer"',
     }),
+    salon_id: Joi.string().uuid().optional(),
   }),
   login: Joi.object({
     email: Joi.string().email().required().messages({
@@ -61,14 +62,33 @@ export const userSchemas = {
     email: Joi.string().email().required().max(255).messages({
       'string.email': 'Must be a valid email address',
     }),
-    role: Joi.string().valid('technician', 'customer', 'admin').required().messages({
-      'any.only': 'Role must be either "technician", "customer", or "admin"',
+    role: Joi.string().valid('superuser', 'admin', 'staff').required().messages({
+      'any.only': 'Role must be one of "superuser", "admin", or "staff"',
     }),
+    salon_id: Joi.string().uuid().allow(null).optional(),
   }),
   update: Joi.object({
     name: Joi.string().max(255).optional(),
     email: Joi.string().email().max(255).optional(),
-    role: Joi.string().valid('technician', 'customer', 'admin').optional(),
+    role: Joi.string().valid('superuser', 'admin', 'staff').optional(),
+    salon_id: Joi.string().uuid().allow(null).optional(),
+  }).min(1),
+};
+
+export const customerSchemas = {
+  create: Joi.object({
+    name: Joi.string().required().max(255).messages({
+      'string.empty': 'Customer name is required',
+    }),
+    email: Joi.string().email().required().max(255).messages({
+      'string.email': 'Must be a valid email address',
+    }),
+    salon_id: Joi.string().uuid().optional(),
+  }),
+  update: Joi.object({
+    name: Joi.string().max(255).optional(),
+    email: Joi.string().email().max(255).optional(),
+    salon_id: Joi.string().uuid().allow(null).optional(),
   }).min(1),
 };
 

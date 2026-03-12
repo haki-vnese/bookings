@@ -5,7 +5,8 @@ const router = express.Router();
 
 router.post('/forminator', (req, res) => {
   const expected = process.env.FORMINATOR_WEBHOOK_TOKEN;
-  if (expected && req.query.token !== expected) {
+  const providedToken = getWebhookToken(req);
+  if (expected && providedToken !== expected) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
@@ -20,9 +21,30 @@ router.post('/forminator', (req, res) => {
 async function processForminatorPayload(body) {
   const normalized = normalizePayload(body);
 
+  const salonCandidates = collectSelectionCandidates(normalized, [
+    'salon_id',
+    'salonId',
+    'location_id',
+    'locationId',
+    'location',
+    'location_name',
+    'branch',
+  ]);
+
   const customerIdInput = getAny(normalized, ['customer_id', 'customerId']);
-  const customerName = getAny(normalized, ['name_1', 'name', 'customer_name', 'customerName']);
-  const customerEmailRaw = getAny(normalized, ['email_1', 'email', 'customer_email', 'customerEmail']);
+  const customerName = getAny(normalized, [
+    'name_1',
+    'name',
+    'full_name',
+    'customer_name',
+    'customerName',
+  ]);
+  const customerEmailRaw = getAny(normalized, [
+    'email_1',
+    'email',
+    'customer_email',
+    'customerEmail',
+  ]);
   const notes = String(getAny(normalized, ['textarea_1', 'notes', 'note', 'message']) || '');
 
   const serviceCandidates = collectSelectionCandidates(normalized, [
@@ -52,6 +74,8 @@ async function processForminatorPayload(body) {
 
   const customerEmail = typeof customerEmailRaw === 'string' ? customerEmailRaw.trim().toLowerCase() : null;
   const customerNameClean = typeof customerName === 'string' ? customerName.trim() : '';
+  const resolvedName = customerNameClean || buildNameFromParts(normalized) || customerEmail;
+  const salonId = await resolveSalonId(salonCandidates);
 
   if (serviceCandidates.length === 0 || technicianCandidates.length === 0 || !appointmentDate) {
     console.warn('Skipping webhook: missing required booking fields', {
@@ -70,11 +94,12 @@ async function processForminatorPayload(body) {
   const customerId = await resolveCustomer({
     customerId: customerIdInput,
     email: customerEmail,
-    name: customerNameClean || customerEmail,
+    name: resolvedName,
+    salonId,
   });
 
   const services = await resolveServices(serviceCandidates);
-  const technicianId = await resolveTechnician(technicianCandidates);
+  const technicianId = await resolveTechnician(technicianCandidates, salonId);
   const startTime = toIsoStartTime(appointmentDate, timeHours, timeMinutes, flatTime);
   let cursorMs = Date.parse(startTime);
 
@@ -94,6 +119,19 @@ async function processForminatorPayload(body) {
     await insertBookingWithNotesFallback(bookingBase, notes);
     cursorMs += durationMinutes * 60000;
   }
+}
+
+function getWebhookToken(req) {
+  const headerToken = req.get('x-webhook-token') || req.get('x-forminator-token');
+  const queryToken = req.query?.token;
+  return String(headerToken || queryToken || '').trim();
+}
+
+function buildNameFromParts(normalized) {
+  const firstName = String(getAny(normalized, ['first_name', 'firstName']) || '').trim();
+  const lastName = String(getAny(normalized, ['last_name', 'lastName']) || '').trim();
+  const name = `${firstName} ${lastName}`.trim();
+  return name || '';
 }
 
 function normalizePayload(input) {
@@ -232,14 +270,12 @@ function buildLookupKeys(value) {
   return [...keys].filter(Boolean);
 }
 
-async function resolveCustomer({ customerId, email, name }) {
+async function resolveCustomer({ customerId, email, name, salonId }) {
   if (customerId && isUuid(customerId)) {
-    const { data: existingById, error: byIdError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', customerId)
-      .eq('role', 'customer')
-      .maybeSingle();
+    let byIdQuery = supabase.from('customers').select('id').eq('id', customerId);
+    if (salonId) byIdQuery = byIdQuery.eq('salon_id', salonId);
+    const { data: existingById, error: byIdError } = await byIdQuery.maybeSingle();
+
     if (byIdError) throw byIdError;
     if (existingById?.id) return existingById.id;
   }
@@ -248,22 +284,68 @@ async function resolveCustomer({ customerId, email, name }) {
     throw new Error('Customer email is required when customer_id is not resolvable');
   }
 
-  const { data: existing, error: selectError } = await supabase
-    .from('users')
-    .select('id')
-    .eq('email', email)
-    .eq('role', 'customer')
-    .maybeSingle();
+  let existingQuery = supabase.from('customers').select('id').eq('email', email);
+  if (salonId) existingQuery = existingQuery.eq('salon_id', salonId);
+  const { data: existing, error: selectError } = await existingQuery.maybeSingle();
+
   if (selectError) throw selectError;
   if (existing?.id) return existing.id;
 
+  const effectiveSalonId = salonId || process.env.FORMINATOR_DEFAULT_SALON_ID;
+  if (!effectiveSalonId) {
+    throw new Error(
+      'salon_id is required. Provide it in webhook payload or set FORMINATOR_DEFAULT_SALON_ID'
+    );
+  }
+
   const { data: created, error: createError } = await supabase
-    .from('users')
-    .insert([{ name: name || email, email, role: 'customer' }])
+    .from('customers')
+    .insert([{ name: name || email, email, salon_id: effectiveSalonId }])
     .select('id')
     .single();
   if (createError) throw createError;
   return created.id;
+}
+
+async function resolveSalonId(candidates) {
+  const defaultSalonId = process.env.FORMINATOR_DEFAULT_SALON_ID;
+  const salonMap = parseMapEnv('FORMINATOR_SALON_MAP');
+  const valuesToTry = withMappedValues(candidates, salonMap);
+
+  for (const value of valuesToTry) {
+    if (!isUuid(value)) continue;
+
+    const { data, error } = await supabase.from('salons').select('id').eq('id', value).maybeSingle();
+    if (error) throw error;
+    if (data?.id) return data.id;
+  }
+
+  for (const value of valuesToTry) {
+    const { data, error } = await supabase
+      .from('salons')
+      .select('id, name')
+      .ilike('name', String(value))
+      .limit(2);
+    if (error) throw error;
+    if (data?.length === 1) return data[0].id;
+    if (data?.length > 1) {
+      throw new Error(
+        `Salon selection is ambiguous for '${value}'. Set FORMINATOR_SALON_MAP, e.g. {"downtown":"<salon-uuid>"}.`
+      );
+    }
+  }
+
+  for (const value of valuesToTry) {
+    const { data, error } = await supabase
+      .from('salons')
+      .select('id, name')
+      .ilike('name', `%${value}%`)
+      .limit(2);
+    if (error) throw error;
+    if (data?.length === 1) return data[0].id;
+  }
+
+  return defaultSalonId || null;
 }
 
 async function resolveService(candidates) {
@@ -334,25 +416,23 @@ async function resolveServices(candidates) {
   return [...resolvedById.values()];
 }
 
-async function resolveTechnician(candidates) {
+async function resolveTechnician(candidates, salonId) {
   const techMap = parseMapEnv('FORMINATOR_TECHNICIAN_MAP');
   const valuesToTry = withMappedValues(candidates, techMap);
 
   for (const value of valuesToTry) {
     if (!isUuid(value)) continue;
 
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, name, email')
-      .eq('role', 'technician')
-      .eq('id', value)
-      .maybeSingle();
+    let query = supabase.from('users').select('id, name, email').eq('role', 'staff').eq('id', value);
+    if (salonId) query = query.eq('salon_id', salonId);
+    const { data, error } = await query.maybeSingle();
     if (error) throw error;
     if (data) return data.id;
   }
 
   for (const value of valuesToTry) {
-    const query = supabase.from('users').select('id, name, email').eq('role', 'technician');
+    let query = supabase.from('users').select('id, name, email').eq('role', 'staff');
+    if (salonId) query = query.eq('salon_id', salonId);
     const { data, error } = String(value).includes('@')
       ? await query.ilike('email', String(value)).limit(2)
       : await query.ilike('name', String(value)).limit(2);
@@ -467,6 +547,23 @@ function isServiceResolutionFailure(error) {
 }
 
 async function insertBookingWithNotesFallback(bookingBase, notes) {
+  const shouldDedupe = String(process.env.FORMINATOR_DEDUPLICATE || 'true').toLowerCase() !== 'false';
+  if (shouldDedupe) {
+    const { data: existing, error: selectError } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('technician_id', bookingBase.technician_id)
+      .eq('customer_id', bookingBase.customer_id)
+      .eq('service_id', bookingBase.service_id)
+      .eq('start_time', bookingBase.start_time)
+      .eq('end_time', bookingBase.end_time)
+      .limit(1)
+      .maybeSingle();
+
+    if (selectError) throw selectError;
+    if (existing?.id) return;
+  }
+
   const bookingWithNotes = { ...bookingBase, notes };
   const { error } = await supabase.from('bookings').insert([bookingWithNotes]);
   if (!error) return;

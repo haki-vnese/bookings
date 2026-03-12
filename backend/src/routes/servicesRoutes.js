@@ -28,8 +28,8 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 router.get('/:id', catchAsync(getServiceById));
-router.post('/', validate(serviceSchemas.create), verifyAuth, authorize('admin'), catchAsync(createService));
-router.put('/:id', validate(serviceSchemas.update), verifyAuth, authorize('admin'), catchAsync(updateService));
-router.delete('/:id', verifyAuth, authorize('admin'), catchAsync(deleteService));
+router.post('/', validate(serviceSchemas.create), verifyAuth, authorize('admin', 'superuser'), catchAsync(createService));
+router.put('/:id', validate(serviceSchemas.update), verifyAuth, authorize('admin', 'superuser'), catchAsync(updateService));
+router.delete('/:id', verifyAuth, authorize('admin', 'superuser'), catchAsync(deleteService));
 
 export default router;

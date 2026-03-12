@@ -3,6 +3,13 @@ import ApiError from '../utils/ApiError.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
+function isMissingColumnError(error, columnName) {
+    if (!error) return false;
+    const message = String(error.message || '').toLowerCase();
+    const code = String(error.code || '').toUpperCase();
+    return code === 'PGRST204' && message.includes(`'${String(columnName).toLowerCase()}' column`);
+}
+
 /**
  * Register a new user
  * POST /api/auth/register
@@ -11,7 +18,7 @@ export const register = async (req, res) => {
     const JWT_SECRET = process.env.JWT_SECRET;
     const JWT_EXPIRY = process.env.JWT_EXPIRY;
     
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, salon_id } = req.body;
 
     if (!JWT_SECRET || !JWT_EXPIRY) {
         throw new ApiError(500, 'Server auth configuration is missing');
@@ -35,16 +42,30 @@ export const register = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create user
-    const { data, error } = await supabase
+    let { data, error } = await supabase
         .from("users")
-        .insert([{ name, email, password: hashedPassword, role }])
-        .select('id, name, email, role');
+        .insert([{ name, email, password: hashedPassword, role, salon_id: salon_id || null }])
+        .select('id, name, email, role, salon_id');
+
+    if (error && isMissingColumnError(error, 'salon_id')) {
+        const legacyRes = await supabase
+            .from('users')
+            .insert([{ name, email, password: hashedPassword, role }])
+            .select('id, name, email, role');
+        data = legacyRes.data;
+        error = legacyRes.error;
+    }
 
     if (error) throw new ApiError(500, error.message);
 
     // Generate JWT token
     const token = jwt.sign(
-        { userId: data[0].id, email: data[0].email, role: data[0].role },
+        {
+            userId: data[0].id,
+            email: data[0].email,
+            role: data[0].role,
+            salon_id: data[0].salon_id || null,
+        },
         JWT_SECRET,
         { expiresIn: JWT_EXPIRY }
     );
@@ -71,11 +92,21 @@ export const login = async (req, res) => {
     }
 
     // Find user
-    const { data: user, error } = await supabase
+    let { data: user, error } = await supabase
         .from("users")
-        .select("id, name, email, password, role")
+        .select("id, name, email, password, role, salon_id")
         .eq("email", email)
         .maybeSingle();
+
+    if (error && isMissingColumnError(error, 'salon_id')) {
+        const legacyRes = await supabase
+            .from('users')
+            .select('id, name, email, password, role')
+            .eq('email', email)
+            .maybeSingle();
+        user = legacyRes.data;
+        error = legacyRes.error;
+    }
 
     if (error) throw new ApiError(500, error.message);
     if (!user) {
@@ -90,7 +121,12 @@ export const login = async (req, res) => {
 
     // Generate JWT token
     const token = jwt.sign(
-        { userId: user.id, email: user.email, role: user.role },
+        {
+            userId: user.id,
+            email: user.email,
+            role: user.role,
+            salon_id: user.salon_id || null,
+        },
         JWT_SECRET,
         { expiresIn: JWT_EXPIRY }
     );
@@ -113,11 +149,21 @@ export const login = async (req, res) => {
 export const getCurrentUser = async (req, res) => {
     const userId = req.user.userId;
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
         .from("users")
-        .select('id, name, email, role, created_at')
+        .select('id, name, email, role, salon_id, created_at, updated_at')
         .eq("id", userId)
         .maybeSingle();
+
+    if (error && (isMissingColumnError(error, 'salon_id') || isMissingColumnError(error, 'updated_at'))) {
+        const legacyRes = await supabase
+            .from('users')
+            .select('id, name, email, role, created_at')
+            .eq('id', userId)
+            .maybeSingle();
+        data = legacyRes.data;
+        error = legacyRes.error;
+    }
 
     if (error) throw new ApiError(500, error.message);
     if (!data) throw new ApiError(404, 'User not found', { expose: true });
