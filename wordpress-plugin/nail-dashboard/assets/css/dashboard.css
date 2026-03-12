@@ -338,6 +338,7 @@ h3,
 }
 
 .nd-calendar-grid {
+  --nd-slot-height: 56px;
   min-width: 980px;
   display: grid;
   grid-template-columns: 90px repeat(7, minmax(120px, 1fr));
@@ -398,13 +399,15 @@ h3,
 }
 
 .nd-calendar-slot {
-  min-height: 86px;
+  height: var(--nd-slot-height);
   padding: 6px;
   display: grid;
   align-content: start;
   gap: 6px;
   background: color-mix(in srgb, var(--nd-color-bg) 97%, var(--nd-color-accent));
   transition: background 120ms ease, box-shadow 120ms ease;
+  overflow: visible;
+  position: relative;
 }
 
 .nd-calendar-slot.is-drop-target {
@@ -424,6 +427,9 @@ h3,
   padding: 7px;
   cursor: grab;
   position: relative;
+  min-height: calc(var(--nd-slot-height) - 12px);
+  height: calc((var(--nd-card-span, 1) * var(--nd-slot-height)) - 12px);
+  z-index: 3;
 }
 
 .nd-calendar-card:active,

@@ -317,10 +317,11 @@ function buildBundleMeta(rows, maps, getEntityLabel) {
   return bundleByBookingId;
 }
 
-function buildTooltip(row, maps, getEntityLabel, hasConflict, bundleMeta) {
+function buildTooltip(row, maps, getEntityLabel, hasConflict, bundleMeta, formatDateTime) {
   const customer = getEntityLabel(row.customer_id, maps.customersById, row.customer_id);
   const technician = getEntityLabel(row.technician_id, maps.usersById, row.technician_id);
   const service = getEntityLabel(row.service_id, maps.servicesById, row.service_id);
+  const durationMinutes = getDurationMinutes(row);
 
   const bundleLine = bundleMeta
     ? `Bundle: Service ${bundleMeta.index}/${bundleMeta.total} | Total ${bundleMeta.totalMinutes} min | ${bundleMeta.serviceNames.join(', ')}`
@@ -331,8 +332,9 @@ function buildTooltip(row, maps, getEntityLabel, hasConflict, bundleMeta) {
     `Technician: ${technician}`,
     `Service: ${service}`,
     bundleLine,
-    `Start: ${new Date(row.start_time || '').toLocaleString()}`,
-    `End: ${new Date(row.end_time || '').toLocaleString()}`,
+    `Start: ${formatDateTime(row.start_time)}`,
+    `End: ${formatDateTime(row.end_time)}`,
+    `Duration: ${durationMinutes || '-'} min`,
     `Conflict: ${hasConflict ? 'Yes' : 'No'}`,
     `Note: ${row.note || row.notes || '-'}`,
     `Booking ID: ${row.id}`,
@@ -513,10 +515,19 @@ export function renderBookingsPanel(state, helpers) {
                     .map((row) => {
                       const hasConflict = conflictSet.has(String(row.id));
                       const bundleMeta = bundleMetaByBookingId.get(String(row.id));
-                      const tooltip = buildTooltip(row, maps, getEntityLabel, hasConflict, bundleMeta);
+                      const tooltip = buildTooltip(
+                        row,
+                        maps,
+                        getEntityLabel,
+                        hasConflict,
+                        bundleMeta,
+                        toShortDateTime
+                      );
                       const customer = getEntityLabel(row.customer_id, maps.customersById, row.customer_id);
                       const service = getEntityLabel(row.service_id, maps.servicesById, row.service_id);
                       const technician = getEntityLabel(row.technician_id, maps.usersById, row.technician_id);
+                      const durationMinutes = Math.max(SLOT_MINUTES, getDurationMinutes(row) || SLOT_MINUTES);
+                      const cardSpan = Math.max(1, durationMinutes / SLOT_MINUTES);
                       const bundleBadge = bundleMeta
                         ? `<span class="nd-bundle-badge" title="${esc(bundleMeta.serviceNames.join(', '))}">Service ${bundleMeta.index}/${bundleMeta.total}</span>`
                         : '';
@@ -529,6 +540,7 @@ export function renderBookingsPanel(state, helpers) {
                           draggable="${canMutate ? 'true' : 'false'}"
                           data-tooltip="${esc(tooltip)}"
                           title="${esc(tooltip)}"
+                          style="--nd-card-span:${esc(cardSpan.toFixed(2))}"
                         >
                           <p class="nd-calendar-card-time">${esc(toShortDateTime(row.start_time))}</p>
                           <p class="nd-calendar-card-main">${esc(customer)}</p>
