@@ -168,6 +168,23 @@ export const getCurrentUser = async (req, res) => {
     if (error) throw new ApiError(500, error.message);
     if (!data) throw new ApiError(404, 'User not found', { expose: true });
 
+    let salonName = null;
+    if (data.salon_id) {
+        const { data: salon, error: salonError } = await supabase
+            .from('salons')
+            .select('name')
+            .eq('id', data.salon_id)
+            .maybeSingle();
+
+        if (!salonError && salon?.name) {
+            salonName = salon.name;
+        }
+    }
+
+    if (salonName) {
+        data = { ...data, salon_name: salonName };
+    }
+
     res.json(data);
 }
 

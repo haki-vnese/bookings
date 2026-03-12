@@ -212,6 +212,21 @@ function pushSelectionValue(output, value) {
       }
     }
 
+    // Forminator multi-select values may arrive as a single delimited string.
+    if (/[\n,;|]/.test(trimmed)) {
+      const parts = trimmed
+        .split(/[\n,;|]/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+
+      if (parts.length > 1) {
+        for (const part of parts) {
+          output.push(part);
+        }
+        return;
+      }
+    }
+
     output.push(trimmed);
     return;
   }
