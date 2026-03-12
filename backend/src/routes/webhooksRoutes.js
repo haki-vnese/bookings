@@ -291,10 +291,10 @@ async function resolveCustomer({ customerId, email, name, salonId }) {
   if (selectError) throw selectError;
   if (existing?.id) return existing.id;
 
-  const effectiveSalonId = salonId || process.env.FORMINATOR_DEFAULT_SALON_ID;
+  const effectiveSalonId = salonId || process.env.FORMINATOR_DEFAULT_SALON_ID || (await resolveSingleSalonId());
   if (!effectiveSalonId) {
     throw new Error(
-      'salon_id is required. Provide it in webhook payload or set FORMINATOR_DEFAULT_SALON_ID'
+      'salon_id is required. Provide it in webhook payload or set FORMINATOR_DEFAULT_SALON_ID. For multi-salon setup, also configure FORMINATOR_SALON_MAP.'
     );
   }
 
@@ -345,7 +345,17 @@ async function resolveSalonId(candidates) {
     if (data?.length === 1) return data[0].id;
   }
 
-  return defaultSalonId || null;
+  if (defaultSalonId) return defaultSalonId;
+
+  // Single-salon mode: if there is exactly one salon in DB, use it automatically.
+  return await resolveSingleSalonId();
+}
+
+async function resolveSingleSalonId() {
+  const { data, error } = await supabase.from('salons').select('id').limit(2);
+  if (error) throw error;
+  if (data?.length === 1) return data[0].id;
+  return null;
 }
 
 async function resolveService(candidates) {
