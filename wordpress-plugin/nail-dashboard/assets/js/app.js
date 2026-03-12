@@ -25,6 +25,7 @@ const client = new NDClient(config);
 const state = createInitialState(client);
 
 const helpers = {
+  timeZone: config.timeZone,
   canManage,
   rolePill,
   esc,

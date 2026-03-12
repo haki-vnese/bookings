@@ -77,19 +77,59 @@ function toSlotKey(dayKey, hour, minute) {
   return `${dayKey}|${hour}|${minute}`;
 }
 
-function mapRowsToSlots(rows, dayKeys) {
+function getZonedParts(value, timeZone) {
+  const date = new Date(value || '');
+  if (Number.isNaN(date.getTime())) return null;
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: String(timeZone || '').trim() || undefined,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+
+    const parts = {};
+    formatter.formatToParts(date).forEach((part) => {
+      if (part.type !== 'literal') parts[part.type] = part.value;
+    });
+
+    return {
+      year: Number(parts.year),
+      month: Number(parts.month),
+      day: Number(parts.day),
+      hour: Number(parts.hour),
+      minute: Number(parts.minute),
+      dateKey: `${parts.year}-${parts.month}-${parts.day}`,
+    };
+  } catch {
+    return {
+      year: date.getFullYear(),
+      month: date.getMonth() + 1,
+      day: date.getDate(),
+      hour: date.getHours(),
+      minute: date.getMinutes(),
+      dateKey: toLocalDateKey(date),
+    };
+  }
+}
+
+function mapRowsToSlots(rows, dayKeys, timeZone) {
   const slotMap = new Map();
   let outsideRange = 0;
 
   rows.forEach((row) => {
-    const start = new Date(row.start_time || '');
-    if (Number.isNaN(start.getTime())) return;
+    const zoned = getZonedParts(row.start_time, timeZone);
+    if (!zoned) return;
 
-    const dayKey = toLocalDateKey(start);
+    const dayKey = zoned.dateKey;
     if (!dayKeys.has(dayKey)) return;
 
-    const hour = start.getHours();
-    const minuteBucket = start.getMinutes() < 30 ? 0 : 30;
+    const hour = zoned.hour;
+    const minuteBucket = zoned.minute < 30 ? 0 : 30;
     const totalMinutes = hour * 60 + minuteBucket;
 
     if (totalMinutes < CALENDAR_START_HOUR * 60 || totalMinutes >= CALENDAR_END_HOUR * 60) {
@@ -303,24 +343,27 @@ function getBookingById(rows, id) {
   return rows.find((row) => String(row.id) === String(id));
 }
 
-function buildReschedulePayload(booking, dropDate, dropHour, dropMinute) {
+function buildReschedulePayload(booking, dropDate, dropHour, dropMinute, fromDateTimeLocalToIso) {
   const currentStart = new Date(booking.start_time || '');
   const currentEnd = new Date(booking.end_time || '');
   if (Number.isNaN(currentStart.getTime()) || Number.isNaN(currentEnd.getTime())) return null;
 
   const durationMs = Math.max(15 * 60 * 1000, currentEnd.getTime() - currentStart.getTime());
 
-  const start = new Date(`${dropDate}T00:00:00`);
-  if (Number.isNaN(start.getTime())) return null;
+  const startLocal = `${dropDate}T${pad2(dropHour)}:${pad2(dropMinute)}`;
+  const startIso = fromDateTimeLocalToIso(startLocal);
+  if (!startIso) return null;
 
-  start.setHours(dropHour, dropMinute, 0, 0);
-  const end = new Date(start.getTime() + durationMs);
+  const startMs = Date.parse(startIso);
+  if (!Number.isFinite(startMs)) return null;
+
+  const end = new Date(startMs + durationMs);
 
   return {
     technician_id: booking.technician_id,
     customer_id: booking.customer_id,
     service_id: booking.service_id,
-    start_time: start.toISOString(),
+    start_time: new Date(startMs).toISOString(),
     end_time: end.toISOString(),
     note: booking.note || booking.notes || '',
   };
@@ -358,6 +401,7 @@ export function renderBookingsPanel(state, helpers) {
 
   const role = String(state.user?.role || '').toLowerCase();
   const canMutate = canManage(role);
+  const timeZone = String(helpers.timeZone || '').trim() || undefined;
   const maps = buildEntityMaps(state);
   const filteredRows = filterBookings(state.data.bookings, state.filters).sort(
     (a, b) => new Date(a.start_time || 0).getTime() - new Date(b.start_time || 0).getTime()
@@ -373,7 +417,7 @@ export function renderBookingsPanel(state, helpers) {
   const weekDays = getWeekDays(weekAnchor);
   const weekRangeLabel = `${weekDays[0].date.toLocaleDateString()} - ${weekDays[6].date.toLocaleDateString()}`;
   const dayKeySet = new Set(weekDays.map((day) => day.key));
-  const { slotMap, outsideRange } = mapRowsToSlots(filteredRows, dayKeySet);
+  const { slotMap, outsideRange } = mapRowsToSlots(filteredRows, dayKeySet, timeZone);
   const slots = getTimeSlots();
 
   const conflictSet = buildConflictSet(filteredRows);
@@ -805,7 +849,13 @@ export function bindBookingsEvents(ctx) {
       const booking = getBookingById(state.data.bookings, id);
       if (!booking) return;
 
-      const payload = buildReschedulePayload(booking, dropDate, dropHour, dropMinute);
+      const payload = buildReschedulePayload(
+        booking,
+        dropDate,
+        dropHour,
+        dropMinute,
+        fromDateTimeLocalToIso
+      );
       if (!payload) {
         window.alert('Unable to move this booking because date/time is invalid.');
         return;
