@@ -1,6 +1,20 @@
 export class NDClient {
   constructor(config) {
     this.apiBaseUrl = (config.apiBaseUrl || '').replace(/\/$/, '');
+    this.storageApiBaseKey = 'nd_api_base_url';
+    this.syncSessionWithApiBase();
+  }
+
+  syncSessionWithApiBase() {
+    const previousBase = window.localStorage.getItem(this.storageApiBaseKey) || '';
+    const currentBase = this.apiBaseUrl || '';
+
+    // If backend target changed (e.g. local -> Render), force fresh login.
+    if (previousBase && currentBase && previousBase !== currentBase) {
+      this.clearSession();
+    }
+
+    window.localStorage.setItem(this.storageApiBaseKey, currentBase);
   }
 
   get token() {
