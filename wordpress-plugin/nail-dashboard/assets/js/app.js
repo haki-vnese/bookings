@@ -29,9 +29,9 @@ const helpers = {
   rolePill,
   esc,
   asArray,
-  toDateTimeLocalValue,
-  fromDateTimeLocalToIso,
-  toShortDateTime,
+  toDateTimeLocalValue: (iso) => toDateTimeLocalValue(iso, config.timeZone),
+  fromDateTimeLocalToIso: (value) => fromDateTimeLocalToIso(value, config.timeZone),
+  toShortDateTime: (value) => toShortDateTime(value, config.timeZone),
   buildEntityMaps,
   getEntityLabel,
   filterBookings,
@@ -55,6 +55,7 @@ function renderShell() {
   const user = state.user || {};
   const role = String(user.role || '').toLowerCase();
   const salon = user.salon_name || user.salon_id || 'global';
+  const timeZone = String(config.timeZone || 'browser-local').trim() || 'browser-local';
   const manage = canManage(role);
 
   app.innerHTML = `
@@ -76,6 +77,7 @@ function renderShell() {
           <div>
             <h1>${state.active[0].toUpperCase()}${state.active.slice(1)}</h1>
             <p>Salon scope: <code>${esc(salon)}</code></p>
+            <p class="nd-muted">Time zone: <code>${esc(timeZone)}</code></p>
           </div>
           <div class="nd-userbox">
             ${rolePill(role)}

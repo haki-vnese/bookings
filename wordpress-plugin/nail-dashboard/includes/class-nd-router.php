@@ -70,6 +70,7 @@ class ND_Router {
         wp_localize_script('nd-dashboard-app', 'ND_CONFIG', [
             'apiBaseUrl' => esc_url_raw(get_option('nd_api_base_url', 'http://localhost:8000/api')),
             'dashboardUrl' => esc_url(home_url('/dashboard')),
+            'timeZone' => wp_timezone_string() ?: 'UTC',
         ]);
     }
 

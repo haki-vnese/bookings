@@ -1,5 +1,11 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const router = express.Router();
 
@@ -100,7 +106,13 @@ async function processForminatorPayload(body) {
 
   const services = await resolveServices(serviceCandidates);
   const technicianId = await resolveTechnician(technicianCandidates, salonId);
-  const startTime = toIsoStartTime(appointmentDate, timeHours, timeMinutes, flatTime);
+  const startTime = toIsoStartTime(
+    appointmentDate,
+    timeHours,
+    timeMinutes,
+    flatTime,
+    process.env.FORMINATOR_TIMEZONE || process.env.BOOKING_TIMEZONE || 'UTC'
+  );
   let cursorMs = Date.parse(startTime);
 
   for (const service of services) {
@@ -476,23 +488,36 @@ async function resolveTechnician(candidates, salonId) {
   );
 }
 
-function toIsoStartTime(dateString, hours, minutes, flatTime) {
+function toIsoStartTime(dateString, hours, minutes, flatTime, timeZone) {
   const dateValue = String(dateString).trim();
+  const tz = String(timeZone || 'UTC').trim() || 'UTC';
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
     const parsed = resolveHourMinute(hours, minutes, flatTime);
-    const [year, month, day] = dateValue.split('-').map(Number);
-    return new Date(year, month - 1, day, parsed.hours, parsed.minutes, 0).toISOString();
+    return dayjs
+      .tz(`${dateValue} ${pad2(parsed.hours)}:${pad2(parsed.minutes)}`, 'YYYY-MM-DD HH:mm', tz)
+      .toISOString();
   }
 
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateValue)) {
     const parsed = resolveHourMinute(hours, minutes, flatTime);
     const [month, day, year] = dateValue.split('/').map(Number);
-    return new Date(year, month - 1, day, parsed.hours, parsed.minutes, 0).toISOString();
+    return dayjs
+      .tz(
+        `${year}-${pad2(month)}-${pad2(day)} ${pad2(parsed.hours)}:${pad2(parsed.minutes)}`,
+        'YYYY-MM-DD HH:mm',
+        tz
+      )
+      .toISOString();
   }
 
-  const fromDate = new Date(dateValue);
-  if (Number.isNaN(fromDate.getTime())) {
+  const zoned = dayjs.tz(dateValue, tz);
+  if (zoned.isValid()) {
+    return zoned.toISOString();
+  }
+
+  const fromDate = dayjs(dateValue);
+  if (!fromDate.isValid()) {
     throw new Error(`Invalid date format: ${dateString}`);
   }
   return fromDate.toISOString();
