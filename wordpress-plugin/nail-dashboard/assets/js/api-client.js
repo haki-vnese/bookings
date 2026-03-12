@@ -60,6 +60,7 @@ export class NDClient {
 
     const response = await fetch(`${this.apiBaseUrl}${path}`, {
       ...options,
+      cache: 'no-store',
       headers,
     });
 
@@ -93,13 +94,6 @@ export class NDClient {
     return this.request('/bookings', { method: 'GET' });
   }
 
-  async createBooking(payload) {
-    return this.request('/bookings', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  }
-
   async updateBooking(bookingId, payload) {
     return this.request(`/bookings/${bookingId}`, {
       method: 'PUT',
@@ -110,13 +104,6 @@ export class NDClient {
   async deleteBooking(bookingId) {
     return this.request(`/bookings/${bookingId}`, {
       method: 'DELETE',
-    });
-  }
-
-  async getAvailability(technicianId, date, serviceId) {
-    const params = new URLSearchParams({ date, serviceId });
-    return this.request(`/availability/${technicianId}?${params.toString()}`, {
-      method: 'GET',
     });
   }
 

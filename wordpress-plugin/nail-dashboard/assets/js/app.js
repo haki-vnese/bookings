@@ -1,5 +1,5 @@
 import { NDClient } from './api-client.js';
-import { createInitialState, resetBookingSlots } from './core/state.js';
+import { createInitialState } from './core/state.js';
 import {
   canManage,
   rolePill,
@@ -104,7 +104,6 @@ function renderShell() {
     state.user = null;
     state.metrics = { bookings: 0, customers: 0, staff: 0, services: 0 };
     state.active = 'overview';
-    resetBookingSlots(state);
     render();
   });
 }
@@ -161,7 +160,6 @@ function bindActiveFeatureEvents() {
     helpers,
     render,
     refreshData,
-    resetBookingSlots,
     bootstrapSession,
   };
 

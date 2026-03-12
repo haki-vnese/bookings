@@ -20,33 +20,16 @@ export function createInitialState(client) {
       customerId: null,
       bookingId: null,
     },
-    bookingSlots: {
-      options: [],
-      technicianId: '',
-      serviceId: '',
-      date: '',
-      loading: false,
-      error: '',
-    },
     filters: {
       booking: {
         technicianId: '',
         customerId: '',
         serviceId: '',
         date: '',
+        calendarWeekStart: '',
+        viewMode: 'split',
       },
     },
-    error: '',
-  };
-}
-
-export function resetBookingSlots(state) {
-  state.bookingSlots = {
-    options: [],
-    technicianId: '',
-    serviceId: '',
-    date: '',
-    loading: false,
     error: '',
   };
 }
