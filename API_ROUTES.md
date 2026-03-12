@@ -26,7 +26,7 @@ Content-Type: application/json
 - `name` (string, max 255)
 - `email` (string, valid email format)
 - `password` (string, min 6, max 128 characters)
-- `role` (string, must be 'technician' or 'customer')
+- `role` (string, must be 'staff' or 'customer')
 
 **Response (201):**
 ```json
@@ -223,7 +223,8 @@ GET /api/users
     "id": "uuid",
     "name": "John Doe",
     "email": "john@example.com",
-    "role": "technician",
+    "role": "staff",
+    "salon_id": "uuid",
     "created_at": "2024-01-18T10:00:00Z"
   }
 ]
@@ -236,22 +237,15 @@ GET /api/users/{id}
 ```
 **Response (200):** User object
 
-### GET /users/technicians
-Fetch all technicians.
+### GET /users/staff
+Fetch all staff users.
 ```
-GET /api/users/technicians
+GET /api/users/staff
 ```
-**Response (200):** Array of technician objects
-
-### GET /users/customers
-Fetch all customers.
-```
-GET /api/users/customers
-```
-**Response (200):** Array of customer objects
+**Response (200):** Array of staff user objects
 
 ### POST /users
-Create a new user.
+Create a new system user (`superuser`, `admin`, or `staff`).
 ```
 POST /api/users
 Content-Type: application/json
@@ -259,13 +253,14 @@ Content-Type: application/json
 {
   "name": "Jane Smith",
   "email": "jane@example.com",
-  "role": "technician"
+  "role": "staff",
+  "salon_id": "uuid"
 }
 ```
 **Required Fields:**
 - `name` (string, max 255)
 - `email` (string, valid email format)
-- `role` (string, must be 'technician' or 'customer')
+- `role` (string, one of `superuser`, `admin`, `staff`)
 
 **Response (201):** Created user object
 
@@ -290,6 +285,53 @@ Delete a user.
 DELETE /api/users/{id}
 ```
 **Response (204):** No content
+
+---
+
+## 🧾 Customers
+
+### GET /customers
+Fetch all customers.
+```
+GET /api/customers
+```
+**Response (200):** Array of customer objects
+
+### GET /customers/:id
+Fetch a specific customer by ID.
+```
+GET /api/customers/{id}
+```
+**Response (200):** Customer object
+
+### POST /customers
+Create a new customer.
+```
+POST /api/customers
+Content-Type: application/json
+
+{
+  "name": "Customer Name",
+  "email": "customer@example.com",
+  "salon_id": "uuid"
+}
+```
+**Required Fields:**
+- `name` (string)
+- `email` (string)
+- `salon_id` (uuid for superuser requests; auto-scoped for admin)
+
+### PUT /customers/:id
+Update customer profile.
+```
+PUT /api/customers/{id}
+```
+
+### DELETE /customers/:id
+Delete customer profile.
+```
+DELETE /api/customers/{id}
+```
 
 ---
 
@@ -590,8 +632,9 @@ curl -X GET http://localhost:8000/api/bookings/customer/{customerId}
 ## Access Control Notes (Updated)
 
 - Services: `POST/PUT/DELETE /api/services` require admin. Reads are public.
-- Users: all `/api/users` endpoints require admin. Admins can create users with role `technician`, `customer`, or `admin`.
-- Technician services: all `/api/technician-services` endpoints require admin.
+- Users: all `/api/users` endpoints require `admin` or `superuser`.
+- Customers: all `/api/customers` endpoints require `admin` or `superuser`.
+- Technician services: all `/api/technician-services` endpoints require `admin` or `superuser`.
 - Bookings:
   - `GET /api/bookings` admin only.
   - `GET /api/bookings/:id` admin or owning customer or assigned technician.
@@ -599,6 +642,46 @@ curl -X GET http://localhost:8000/api/bookings/customer/{customerId}
   - `GET /api/bookings/customer/:customerId` admin or that customer.
   - `POST /api/bookings` admin or owning customer (customer_id must match token).
   - `PUT/DELETE /api/bookings/:id` admin or owning customer.
+  - Tenant scope: `admin` can only access bookings in their own `salon_id`; `superuser` can access all salons.
+
+---
+
+## Webhook Integration (WordPress/Forminator)
+
+### Endpoint
+- `POST /webhooks/forminator`
+
+### Security
+- Set `FORMINATOR_WEBHOOK_TOKEN` in backend env.
+- Send webhook token in one of these:
+  - Query: `?token=...`
+  - Header: `x-webhook-token: ...` (recommended)
+  - Header: `x-forminator-token: ...`
+
+### Payload Fields (minimum)
+- Service selection: one of `service_id`, `service`, `service_name`, `select_1`.
+- Technician selection: one of `technician_id`, `technician`, `technician_name`, `select_2`.
+- Date: one of `date_1`, `appointment_date`, `date`.
+- Customer identity: `customer_id` or customer email (`email_1`, `email`).
+
+### Optional multi-salon fields
+- `salon_id`, `salonId`, `location_id`, `location`, `branch`.
+- If missing, backend falls back to `FORMINATOR_DEFAULT_SALON_ID`.
+
+### Idempotency behavior
+- Duplicate webhook retries are ignored by default when booking segments match:
+  - `technician_id`, `customer_id`, `service_id`, `start_time`, `end_time`
+- Disable dedupe only if needed: `FORMINATOR_DEDUPLICATE=false`
+
+### Recommended env vars for WordPress integration
+```
+FORMINATOR_WEBHOOK_TOKEN=your_secure_token
+FORMINATOR_DEFAULT_SALON_ID=<salon-uuid>
+FORMINATOR_SALON_MAP={"downtown":"<salon-uuid>","uptown":"<salon-uuid>"}
+FORMINATOR_SERVICE_MAP={"gel manicure":"<service-uuid>"}
+FORMINATOR_TECHNICIAN_MAP={"anna":"<staff-uuid>"}
+FORMINATOR_DEDUPLICATE=true
+```
 
 ---
 
