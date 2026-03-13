@@ -79,10 +79,10 @@ export class NDClient {
     return payload;
   }
 
-  async login(email, password) {
+  async login(identifier, password) {
     return this.request('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ identifier, password }),
     });
   }
 
@@ -113,6 +113,41 @@ export class NDClient {
 
   async getUsers() {
     return this.request('/users', { method: 'GET' });
+  }
+
+  async updateMe(payload) {
+    return this.request('/users/me', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getStaff() {
+    return this.request('/staff', { method: 'GET' });
+  }
+
+  async getMyStaff() {
+    return this.request('/staff/me', { method: 'GET' });
+  }
+
+  async createStaff(payload) {
+    return this.request('/staff', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateStaff(staffId, payload) {
+    return this.request(`/staff/${staffId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async deleteStaff(staffId) {
+    return this.request(`/staff/${staffId}`, {
+      method: 'DELETE',
+    });
   }
 
   async getServices() {

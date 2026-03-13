@@ -11,16 +11,35 @@ export function createInitialState(client) {
     },
     data: {
       users: [],
+      staff: [],
       customers: [],
       bookings: [],
       services: [],
     },
     editing: {
       userId: null,
+      staffId: null,
       customerId: null,
       bookingId: null,
     },
+    modal: {
+      type: null,
+      rowId: null,
+    },
     filters: {
+      user: {
+        q: '',
+        role: '',
+        salon: '',
+      },
+      staff: {
+        q: '',
+        salon: '',
+      },
+      customer: {
+        q: '',
+        salon: '',
+      },
       booking: {
         technicianId: '',
         customerId: '',

@@ -588,6 +588,56 @@ h3,
   margin: 8px 0 0;
 }
 
+.nd-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 18px;
+}
+
+.nd-modal {
+  width: min(100%, 620px);
+  background: var(--nd-color-surface);
+  border: 1px solid var(--nd-color-border);
+  border-radius: var(--nd-radius);
+  box-shadow: var(--nd-shadow);
+  padding: 18px;
+}
+
+.nd-modal-form {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.nd-modal-form input,
+.nd-modal-form select,
+.nd-modal-form button {
+  border-radius: 8px;
+  border: 1px solid var(--nd-color-border);
+  padding: 10px;
+}
+
+.nd-modal-form button {
+  border: 1px solid transparent;
+  color: var(--wp--preset--color--base, #ffffff);
+  background: var(--nd-color-accent);
+  cursor: pointer;
+}
+
+.nd-staff-summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.nd-staff-summary p {
+  margin: 0;
+}
+
 code {
   background: color-mix(in srgb, var(--nd-color-text) 6%, transparent);
   padding: 2px 6px;
@@ -636,5 +686,9 @@ code {
 
   .nd-filters {
     grid-template-columns: 1fr;
+  }
+
+  .nd-row-actions {
+    flex-wrap: wrap;
   }
 }

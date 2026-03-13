@@ -17,6 +17,7 @@ import { renderOverviewPanel } from './features/overview.js';
 import { renderBookingsPanel, bindBookingsEvents } from './features/bookings.js';
 import { renderCustomersPanel, bindCustomersEvents } from './features/customers.js';
 import { renderUsersPanel, bindUsersEvents } from './features/users.js';
+import { renderStaffPanel, bindStaffEvents } from './features/staff.js';
 import { renderServicesPanel, bindServicesEvents } from './features/services.js';
 
 const app = document.getElementById('nd-app');
@@ -47,6 +48,7 @@ function renderPanel() {
   if (state.active === 'bookings') return renderBookingsPanel(state, helpers);
   if (state.active === 'customers') return renderCustomersPanel(state, helpers);
   if (state.active === 'users') return renderUsersPanel(state, helpers);
+  if (state.active === 'staff') return renderStaffPanel(state, helpers);
   if (state.active === 'services') return renderServicesPanel(state, helpers);
 
   return `<section class="nd-panel"><p>Module coming soon.</p></section>`;
@@ -58,6 +60,8 @@ function renderShell() {
   const salon = user.salon_name || user.salon_id || 'global';
   const timeZone = String(config.timeZone || 'browser-local').trim() || 'browser-local';
   const manage = canManage(role);
+  const canUseUsers = manage || role === 'staff';
+  const canUseStaff = manage || role === 'staff';
 
   app.innerHTML = `
     <div class="nd-layout">
@@ -68,7 +72,8 @@ function renderShell() {
           <button data-view="overview" class="nd-nav ${state.active === 'overview' ? 'active' : ''}">Overview</button>
           <button data-view="bookings" class="nd-nav ${state.active === 'bookings' ? 'active' : ''}">Bookings</button>
           <button data-view="customers" class="nd-nav ${state.active === 'customers' ? 'active' : ''}">Customers</button>
-          <button data-view="users" class="nd-nav ${state.active === 'users' ? 'active' : ''}" ${manage ? '' : 'disabled'}>Staff</button>
+          <button data-view="users" class="nd-nav ${state.active === 'users' ? 'active' : ''}" ${canUseUsers ? '' : 'disabled'}>Users</button>
+          <button data-view="staff" class="nd-nav ${state.active === 'staff' ? 'active' : ''}" ${canUseStaff ? '' : 'disabled'}>Staff</button>
           <button data-view="services" class="nd-nav ${state.active === 'services' ? 'active' : ''}">Services</button>
         </nav>
       </aside>
@@ -111,25 +116,31 @@ function renderShell() {
 async function refreshData() {
   const role = String(state.user?.role || '').toLowerCase();
   const canReadManageData = canManage(role);
+  const isStaffOnly = role === 'staff';
 
-  const [bookings, customers, users, services] = await Promise.all([
+  const [bookings, customers, users, staff, myStaff, services] = await Promise.all([
     client.getBookings().catch(() => []),
     canReadManageData ? client.getCustomers().catch(() => []) : Promise.resolve([]),
     canReadManageData ? client.getUsers().catch(() => []) : Promise.resolve([]),
+    canReadManageData ? client.getStaff().catch(() => []) : Promise.resolve([]),
+    isStaffOnly ? client.getMyStaff().catch(() => null) : Promise.resolve(null),
     client.getServices().catch(() => []),
   ]);
+
+  const staffRows = canReadManageData ? asArray(staff) : myStaff ? [myStaff] : [];
 
   state.data = {
     bookings: asArray(bookings),
     customers: asArray(customers),
     users: asArray(users),
+    staff: asArray(staffRows),
     services: asArray(services),
   };
 
   state.metrics = {
     bookings: state.data.bookings.length,
     customers: state.data.customers.length,
-    staff: state.data.users.filter((user) => user.role === 'staff').length,
+    staff: state.data.staff.length,
     services: state.data.services.length,
   };
 }
@@ -175,6 +186,11 @@ function bindActiveFeatureEvents() {
 
   if (state.active === 'users') {
     bindUsersEvents(ctx);
+    return;
+  }
+
+  if (state.active === 'staff') {
+    bindStaffEvents(ctx);
     return;
   }
 

@@ -8,8 +8,8 @@ export function renderLogin(ctx) {
         <h1>Editorial Admin Suite</h1>
         <p class="nd-subtitle">Sign in with your backend account to manage bookings, staff, and customers.</p>
         <form id="nd-login-form" class="nd-form">
-          <label>Email
-            <input id="nd-email" type="email" required placeholder="admin@salon.com" autocomplete="username" />
+          <label>Email or Username
+            <input id="nd-identifier" type="text" required placeholder="admin@salon.com or admin01" autocomplete="username" />
           </label>
           <label>Password
             <input id="nd-password" type="password" required placeholder="••••••••" autocomplete="current-password" />
@@ -28,11 +28,11 @@ export function renderLogin(ctx) {
     event.preventDefault();
     errorNode.textContent = '';
 
-    const email = document.getElementById('nd-email').value.trim();
+    const identifier = document.getElementById('nd-identifier').value.trim();
     const password = document.getElementById('nd-password').value;
 
     try {
-      const response = await client.login(email, password);
+      const response = await client.login(identifier, password);
       client.token = response.token;
       await bootstrapSession();
       render();
