@@ -73,6 +73,11 @@ export const userSchemas = {
       'string.email': 'Must be a valid email address',
     }),
     username: Joi.string().alphanum().min(3).max(50).optional(),
+    password: Joi.string().required().min(6).max(128).messages({
+      'string.empty': 'Password is required',
+      'string.min': 'Password must be at least 6 characters',
+      'string.max': 'Password must be less than 128 characters',
+    }),
     role: Joi.string().valid('superuser', 'admin', 'staff').required().messages({
       'any.only': 'Role must be one of "superuser", "admin", or "staff"',
     }),

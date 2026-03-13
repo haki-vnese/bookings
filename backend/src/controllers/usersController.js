@@ -1,5 +1,6 @@
 import { supabase } from "../db/supabase.js";
 import ApiError from '../utils/ApiError.js';
+import bcrypt from 'bcryptjs';
 
 const USER_SELECT_FIELDS = 'id, name, email, username, role, role_id, company_id, salon_id, created_at, updated_at, created_by, updated_by';
 
@@ -51,7 +52,7 @@ export const getUserById = async (req, res) => {
 }
 
 export const createUser = async (req, res) => {
-    const { name, email, username, role, salon_id, company_id } = req.body;
+    const { name, email, username, password, role, salon_id, company_id } = req.body;
 
     if (role === 'customer') {
         throw new ApiError(400, 'Customers must be created via customer endpoints', { expose: true });
@@ -61,10 +62,13 @@ export const createUser = async (req, res) => {
         throw new ApiError(403, 'Admins cannot create superusers', { expose: true });
     }
 
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     const payload = {
         name,
         email,
         username: username || null,
+        password: hashedPassword,
         role,
         created_by: req.user?.userId,
         updated_by: req.user?.userId,
