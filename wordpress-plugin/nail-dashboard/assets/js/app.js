@@ -118,23 +118,29 @@ async function refreshData() {
   const canReadManageData = canManage(role);
   const isStaffOnly = role === 'staff';
 
-  const [bookings, customers, users, staff, myStaff, services] = await Promise.all([
+  const [bookings, customers, users, staff, myStaff, services, companies, salons] = await Promise.all([
     client.getBookings().catch(() => []),
     canReadManageData ? client.getCustomers().catch(() => []) : Promise.resolve([]),
     canReadManageData ? client.getUsers().catch(() => []) : Promise.resolve([]),
     canReadManageData ? client.getStaff().catch(() => []) : Promise.resolve([]),
     isStaffOnly ? client.getMyStaff().catch(() => null) : Promise.resolve(null),
     client.getServices().catch(() => []),
+    canReadManageData ? client.getCompanies().catch(() => []) : Promise.resolve([]),
+    canReadManageData ? client.getSalons().catch(() => []) : Promise.resolve([]),
   ]);
 
+  const salonsRows = asArray(salons);
+  const usersRows = asArray(users);
   const staffRows = canReadManageData ? asArray(staff) : myStaff ? [myStaff] : [];
 
   state.data = {
     bookings: asArray(bookings),
     customers: asArray(customers),
-    users: asArray(users),
+    users: usersRows,
     staff: asArray(staffRows),
     services: asArray(services),
+    companies: asArray(companies),
+    salons: salonsRows,
   };
 
   state.metrics = {

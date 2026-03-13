@@ -15,6 +15,8 @@ export function createInitialState(client) {
       customers: [],
       bookings: [],
       services: [],
+      companies: [],
+      salons: [],
     },
     editing: {
       userId: null,

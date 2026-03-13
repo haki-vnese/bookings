@@ -17,6 +17,13 @@ function renderCustomerModal(state, helpers, role) {
   const editingId = state.modal.type === 'edit-customer' ? state.modal.rowId : null;
   const editingRow = state.data.customers.find((row) => row.id === editingId) || null;
   const isCreate = state.modal.type === 'create-customer';
+  const companies = state.data.companies || [];
+  const salons = state.data.salons || [];
+  const selectedCompanyId = editingRow?.company_id || '';
+  const selectedSalonId = editingRow?.salon_id || '';
+  const scopedSalons = role === 'superuser'
+    ? (selectedCompanyId ? salons.filter((row) => row.company_id === selectedCompanyId) : salons)
+    : salons;
 
   if (!isCreate && !editingRow) return '';
 
@@ -30,8 +37,20 @@ function renderCustomerModal(state, helpers, role) {
         <form id="nd-customer-modal-form" class="nd-modal-form" data-id="${esc(editingRow?.id || '')}">
           <input name="name" required placeholder="Customer name" value="${esc(editingRow?.name || '')}" />
           <input name="email" type="email" required placeholder="Email" value="${esc(editingRow?.email || '')}" />
-          <input name="salon_id" ${role === 'superuser' ? 'required' : ''} placeholder="Salon UUID" value="${esc(editingRow?.salon_id || '')}" />
-          ${role === 'superuser' ? `<input name="company_id" placeholder="Company UUID" value="${esc(editingRow?.company_id || '')}" />` : ''}
+          ${role === 'superuser' ? `
+            <select name="company_id">
+              <option value="">No company</option>
+              ${companies
+                .map((row) => `<option value="${esc(row.id)}" ${selectedCompanyId === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
+                .join('')}
+            </select>
+          ` : ''}
+          <select name="salon_id" ${role === 'superuser' ? 'required' : ''}>
+            <option value="">${role === 'superuser' ? 'Select salon' : 'Use my salon scope'}</option>
+            ${scopedSalons
+              .map((row) => `<option value="${esc(row.id)}" ${selectedSalonId === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
+              .join('')}
+          </select>
           <button type="submit">${isCreate ? 'Create' : 'Save'}</button>
         </form>
       </div>
@@ -44,7 +63,8 @@ export function renderCustomersPanel(state, helpers) {
   const role = String(state.user?.role || '').toLowerCase();
   const rows = filterCustomers(state.data.customers || [], state.filters.customer || {});
   const canCreate = canManage(role);
-  const salonOptions = [...new Set((state.data.customers || []).map((row) => row.salon_id).filter(Boolean))];
+  const salons = state.data.salons || [];
+  const salonsById = new Map(salons.map((row) => [row.id, row.name]));
 
   return `
     <section class="nd-panel">
@@ -59,7 +79,9 @@ export function renderCustomersPanel(state, helpers) {
         <input name="q" placeholder="Search by name, email, salon" value="${esc(state.filters.customer.q || '')}" />
         <select name="salon">
           <option value="">All salons</option>
-          ${salonOptions.map((id) => `<option value="${esc(id)}" ${state.filters.customer.salon === id ? 'selected' : ''}>${esc(id)}</option>`).join('')}
+          ${salons
+            .map((row) => `<option value="${esc(row.id)}" ${state.filters.customer.salon === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
+            .join('')}
         </select>
         <button type="submit" class="nd-secondary">Apply Filter</button>
         <button type="button" class="nd-ghost" data-action="clear-customer-filter">Clear</button>
@@ -83,7 +105,7 @@ export function renderCustomersPanel(state, helpers) {
                         <tr>
                           <td>${esc(row.name)}</td>
                           <td>${esc(row.email)}</td>
-                          <td>${esc(row.salon_name || row.salon_id || '-')}</td>
+                          <td>${esc(row.salon_name || salonsById.get(row.salon_id) || row.salon_id || '-')}</td>
                           <td>
                             ${
                               canCreate

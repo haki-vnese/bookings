@@ -80,9 +80,10 @@ export class NDClient {
   }
 
   async login(identifier, password) {
+    // Backward-compatible payload: newer APIs use `identifier`, older ones require `email`.
     return this.request('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ identifier, password }),
+      body: JSON.stringify({ identifier, email: identifier, password }),
     });
   }
 
@@ -124,6 +125,14 @@ export class NDClient {
 
   async getStaff() {
     return this.request('/staff', { method: 'GET' });
+  }
+
+  async getCompanies() {
+    return this.request('/companies', { method: 'GET' });
+  }
+
+  async getSalons() {
+    return this.request('/salons', { method: 'GET' });
   }
 
   async getMyStaff() {

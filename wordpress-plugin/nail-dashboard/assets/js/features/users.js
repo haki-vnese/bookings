@@ -15,6 +15,12 @@ function filterUsers(rows, filters) {
   });
 }
 
+function getSalonLabel(row, salonsById) {
+  if (row.salon_name) return row.salon_name;
+  if (!row.salon_id) return 'global';
+  return salonsById.get(row.salon_id) || row.salon_id;
+}
+
 function renderUserModal(state, helpers, role) {
   const { esc } = helpers;
   const editingId = state.modal.type === 'edit-user' ? state.modal.rowId : null;
@@ -23,6 +29,14 @@ function renderUserModal(state, helpers, role) {
   if (!isCreate && !editingRow) return '';
 
   const roleOptions = role === 'superuser' ? ['staff', 'admin', 'superuser'] : ['staff', 'admin'];
+  const companies = state.data.companies || [];
+  const salons = state.data.salons || [];
+  const selectedCompanyId = editingRow?.company_id || '';
+  const selectedSalonId = editingRow?.salon_id || '';
+
+  const scopedSalons = role === 'superuser'
+    ? (selectedCompanyId ? salons.filter((row) => row.company_id === selectedCompanyId) : salons)
+    : salons;
 
   return `
     <div class="nd-modal-backdrop" data-action="close-user-modal">
@@ -35,13 +49,26 @@ function renderUserModal(state, helpers, role) {
           <input name="name" required placeholder="Full name" value="${esc(editingRow?.name || '')}" />
           <input name="email" type="email" required placeholder="Email" value="${esc(editingRow?.email || '')}" />
           <input name="username" placeholder="Username" value="${esc(editingRow?.username || '')}" />
+          ${isCreate ? '<input name="password" type="password" required placeholder="Temporary password" minlength="6" />' : ''}
           <select name="role">
             ${roleOptions
               .map((option) => `<option value="${option}" ${editingRow?.role === option ? 'selected' : ''}>${option}</option>`)
               .join('')}
           </select>
-          ${role === 'superuser' ? `<input name="company_id" placeholder="Company UUID" value="${esc(editingRow?.company_id || '')}" />` : ''}
-          ${role === 'superuser' ? `<input name="salon_id" placeholder="Salon UUID" value="${esc(editingRow?.salon_id || '')}" />` : ''}
+          ${role === 'superuser' ? `
+            <select name="company_id">
+              <option value="">No company</option>
+              ${companies
+                .map((row) => `<option value="${esc(row.id)}" ${selectedCompanyId === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
+                .join('')}
+            </select>
+            <select name="salon_id">
+              <option value="">No salon</option>
+              ${scopedSalons
+                .map((row) => `<option value="${esc(row.id)}" ${selectedSalonId === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
+                .join('')}
+            </select>
+          ` : ''}
           <button type="submit">${isCreate ? 'Create' : 'Save'}</button>
         </form>
       </div>
@@ -87,7 +114,8 @@ export function renderUsersPanel(state, helpers) {
 
   const filters = state.filters.user || {};
   const rows = filterUsers(state.data.users || [], filters);
-  const salonOptions = [...new Set((state.data.users || []).map((row) => row.salon_id).filter(Boolean))];
+  const salons = state.data.salons || [];
+  const salonsById = new Map(salons.map((row) => [row.id, row.name]));
 
   return `
     <section class="nd-panel">
@@ -108,7 +136,9 @@ export function renderUsersPanel(state, helpers) {
         </select>
         <select name="salon">
           <option value="">All salons</option>
-          ${salonOptions.map((id) => `<option value="${esc(id)}" ${filters.salon === id ? 'selected' : ''}>${esc(id)}</option>`).join('')}
+          ${salons
+            .map((row) => `<option value="${esc(row.id)}" ${filters.salon === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
+            .join('')}
         </select>
         <button type="submit" class="nd-secondary">Apply Filter</button>
         <button type="button" class="nd-ghost" data-action="clear-user-filter">Clear</button>
@@ -134,7 +164,7 @@ export function renderUsersPanel(state, helpers) {
                           <td>${esc(row.name)}</td>
                           <td>${esc(row.email)}</td>
                           <td>${rolePill(row.role)}</td>
-                          <td>${esc(row.salon_name || row.salon_id || 'global')}</td>
+                          <td>${esc(getSalonLabel(row, salonsById))}</td>
                           <td>
                             <div class="nd-row-actions">
                               <button class="nd-secondary" data-action="open-edit-user" data-id="${esc(row.id)}">Edit</button>
@@ -265,6 +295,11 @@ export function bindUsersEvents(ctx) {
         username: String(formData.get('username') || '').trim() || null,
         role: String(formData.get('role') || '').trim(),
       };
+
+      const password = String(formData.get('password') || '').trim();
+      if (state.modal.type !== 'edit-user' && password) {
+        payload.password = password;
+      }
 
       const companyId = String(formData.get('company_id') || '').trim();
       const salonId = String(formData.get('salon_id') || '').trim();

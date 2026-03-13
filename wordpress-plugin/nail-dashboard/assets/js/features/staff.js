@@ -22,6 +22,13 @@ function renderStaffModal(state, helpers, role) {
   const editingId = state.modal.type === 'edit-staff' ? state.modal.rowId : null;
   const editingRow = state.data.staff.find((row) => row.staff_id === editingId) || null;
   const isCreate = state.modal.type === 'create-staff';
+  const companies = state.data.companies || [];
+  const salons = state.data.salons || [];
+  const selectedCompanyId = editingRow?.company_id || '';
+  const selectedSalonId = editingRow?.salon_id || '';
+  const scopedSalons = role === 'superuser'
+    ? (selectedCompanyId ? salons.filter((row) => row.company_id === selectedCompanyId) : salons)
+    : salons;
 
   if (!isCreate && !editingRow) return '';
 
@@ -36,8 +43,20 @@ function renderStaffModal(state, helpers, role) {
           <input name="name" required placeholder="Full name" value="${esc(editingRow?.name || '')}" />
           <input name="email" type="email" placeholder="Email" value="${esc(editingRow?.email || '')}" />
           <input name="phone" placeholder="Phone" value="${esc(editingRow?.phone || '')}" />
-          <input name="salon_id" required placeholder="Salon UUID" value="${esc(editingRow?.salon_id || '')}" />
-          ${role === 'superuser' ? `<input name="company_id" required placeholder="Company UUID" value="${esc(editingRow?.company_id || '')}" />` : ''}
+          ${role === 'superuser' ? `
+            <select name="company_id" required>
+              <option value="">Select company</option>
+              ${companies
+                .map((row) => `<option value="${esc(row.id)}" ${selectedCompanyId === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
+                .join('')}
+            </select>
+          ` : ''}
+          <select name="salon_id" required>
+            <option value="">Select salon</option>
+            ${scopedSalons
+              .map((row) => `<option value="${esc(row.id)}" ${selectedSalonId === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
+              .join('')}
+          </select>
           <button type="submit">${isCreate ? 'Create' : 'Save'}</button>
         </form>
       </div>
@@ -69,7 +88,8 @@ export function renderStaffPanel(state, helpers) {
     `;
   }
 
-  const salons = [...new Set((state.data.staff || []).map((row) => row.salon_id).filter(Boolean))];
+  const salons = state.data.salons || [];
+  const salonsById = new Map(salons.map((row) => [row.id, row.name]));
 
   return `
     <section class="nd-panel">
@@ -84,7 +104,9 @@ export function renderStaffPanel(state, helpers) {
         <input name="q" placeholder="Search by name, email, phone" value="${esc(filters.q || '')}" />
         <select name="salon">
           <option value="">All salons</option>
-          ${salons.map((id) => `<option value="${esc(id)}" ${filters.salon === id ? 'selected' : ''}>${esc(id)}</option>`).join('')}
+          ${salons
+            .map((row) => `<option value="${esc(row.id)}" ${filters.salon === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
+            .join('')}
         </select>
         <button type="submit" class="nd-secondary">Apply Filter</button>
         <button type="button" class="nd-ghost" data-action="clear-staff-filter">Clear</button>
@@ -110,7 +132,7 @@ export function renderStaffPanel(state, helpers) {
                           <td>${esc(row.name)}</td>
                           <td>${esc(row.email || '-')}</td>
                           <td>${esc(row.phone || '-')}</td>
-                          <td>${esc(getSalonLabel(row))}</td>
+                          <td>${esc(row.salon_name || salonsById.get(row.salon_id) || getSalonLabel(row))}</td>
                           <td>
                             <div class="nd-row-actions">
                               <button class="nd-secondary" data-action="open-edit-staff" data-id="${esc(row.staff_id)}">Edit</button>
