@@ -29,7 +29,7 @@ describe('Availability Controller', () => {
 
     // Create test service (60 min duration)
     const { data: svc } = await supabase.from('services')
-      .insert({ name: 'Test Service', duration_minutes: 60, price: 100 })
+      .insert({ name: `Test Service ${Date.now()}`, duration_minutes: 60, price: 100 })
       .select().single();
     serviceId = svc.id;
   });
