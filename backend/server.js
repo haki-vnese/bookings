@@ -12,6 +12,8 @@ import bookingRouter from './src/routes/bookingRoutes.js';
 import availabilityRouter from './src/routes/availabilityRoutes.js';
 import requestLogger from './src/middleware/requestLogger.js';
 import webhookRouter from './src/routes/webhooksRoutes.js';
+import companiesRouter from './src/routes/companiesRoutes.js';
+import staffRouter from './src/routes/staffRoutes.js';
 import { notFound, errorHandler } from './src/middleware/errorHandler.js';
 
 const app = express();
@@ -47,6 +49,8 @@ app.use('/api/auth', authRouter);
 app.use('/api/services', servicesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/customers', customersRouter);
+app.use('/api/companies', companiesRouter);
+app.use('/api/staff', staffRouter);
 app.use('/api/technician-services', technicianServicesRouter);
 app.use('/api/bookings', bookingRouter);
 app.use('/api/availability', availabilityRouter);

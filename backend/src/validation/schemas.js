@@ -10,6 +10,11 @@ export const authSchemas = {
     email: Joi.string().email().required().max(255).messages({
       'string.email': 'Must be a valid email address',
     }),
+    username: Joi.string().alphanum().min(3).max(50).optional().messages({
+      'string.alphanum': 'Username can only contain letters and numbers',
+      'string.min': 'Username must be at least 3 characters',
+      'string.max': 'Username must be less than 50 characters',
+    }),
     password: Joi.string().required().min(6).max(128).messages({
       'string.empty': 'Password is required',
       'string.min': 'Password must be at least 6 characters',
@@ -18,16 +23,21 @@ export const authSchemas = {
     role: Joi.string().valid('superuser', 'admin', 'staff', 'customer').required().messages({
       'any.only': 'Role must be one of "superuser", "admin", "staff", or "customer"',
     }),
+    company_id: Joi.string().uuid().allow(null).optional(),
     salon_id: Joi.string().uuid().optional(),
   }),
   login: Joi.object({
-    email: Joi.string().email().required().messages({
-      'string.email': 'Must be a valid email address',
+    identifier: Joi.string().min(3).max(255).optional().messages({
+      'string.empty': 'Email or username is required',
     }),
     password: Joi.string().required().messages({
       'string.empty': 'Password is required',
     }),
-  }),
+  })
+    .or('identifier', 'email')
+    .keys({
+      email: Joi.string().email().optional(),
+    }),
 };
 
 // Services validation schemas
@@ -62,16 +72,54 @@ export const userSchemas = {
     email: Joi.string().email().required().max(255).messages({
       'string.email': 'Must be a valid email address',
     }),
+    username: Joi.string().alphanum().min(3).max(50).optional(),
     role: Joi.string().valid('superuser', 'admin', 'staff').required().messages({
       'any.only': 'Role must be one of "superuser", "admin", or "staff"',
     }),
+    company_id: Joi.string().uuid().allow(null).optional(),
     salon_id: Joi.string().uuid().allow(null).optional(),
   }),
   update: Joi.object({
     name: Joi.string().max(255).optional(),
     email: Joi.string().email().max(255).optional(),
+    username: Joi.string().alphanum().min(3).max(50).optional(),
     role: Joi.string().valid('superuser', 'admin', 'staff').optional(),
+    company_id: Joi.string().uuid().allow(null).optional(),
     salon_id: Joi.string().uuid().allow(null).optional(),
+  }).min(1),
+};
+
+export const companySchemas = {
+  create: Joi.object({
+    name: Joi.string().required().max(255).messages({
+      'string.empty': 'Company name is required',
+    }),
+    address_id: Joi.string().uuid().allow(null).optional(),
+  }),
+  update: Joi.object({
+    name: Joi.string().max(255).optional(),
+    address_id: Joi.string().uuid().allow(null).optional(),
+  }).min(1),
+};
+
+export const staffSchemas = {
+  create: Joi.object({
+    name: Joi.string().required().max(255),
+    phone: Joi.string().max(30).allow('', null).optional(),
+    email: Joi.string().email().allow('', null).optional(),
+    address_id: Joi.string().uuid().allow(null).optional(),
+    company_id: Joi.string().uuid().required(),
+    salon_id: Joi.string().uuid().required(),
+    user_id: Joi.string().uuid().allow(null).optional(),
+  }),
+  update: Joi.object({
+    name: Joi.string().max(255).optional(),
+    phone: Joi.string().max(30).allow('', null).optional(),
+    email: Joi.string().email().allow('', null).optional(),
+    address_id: Joi.string().uuid().allow(null).optional(),
+    company_id: Joi.string().uuid().optional(),
+    salon_id: Joi.string().uuid().optional(),
+    user_id: Joi.string().uuid().allow(null).optional(),
   }).min(1),
 };
 

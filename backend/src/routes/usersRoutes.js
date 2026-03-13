@@ -9,13 +9,15 @@ import {
   createUser,
   updateUser,
   deleteUser,
-  getStaff
+  getStaff,
+  updateCurrentUser
 } from '../controllers/usersController.js'
 
 const router = express.Router()
 
 router.get('/', verifyAuth, authorize('admin', 'superuser'), catchAsync(getAllUsers))
 router.get('/staff', verifyAuth, authorize('admin', 'superuser'), catchAsync(getStaff))
+router.put('/me', validate(userSchemas.update), verifyAuth, catchAsync(updateCurrentUser))
 router.get('/:id', verifyAuth, authorize('admin', 'superuser'), catchAsync(getUserById))
 router.post('/', validate(userSchemas.create), verifyAuth, authorize('admin', 'superuser'), catchAsync(createUser))
 router.put('/:id', validate(userSchemas.update), verifyAuth, authorize('admin', 'superuser'), catchAsync(updateUser))
