@@ -3,13 +3,6 @@ import ApiError from '../utils/ApiError.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-function isMissingColumnError(error, columnName) {
-    if (!error) return false;
-    const message = String(error.message || '').toLowerCase();
-    const code = String(error.code || '').toUpperCase();
-    return code === 'PGRST204' && message.includes(`'${String(columnName).toLowerCase()}' column`);
-}
-
 /**
  * Register a new user
  * POST /api/auth/register
@@ -18,43 +11,75 @@ export const register = async (req, res) => {
     const JWT_SECRET = process.env.JWT_SECRET;
     const JWT_EXPIRY = process.env.JWT_EXPIRY;
     
-    const { name, email, password, role, salon_id } = req.body;
+    const { name, email, username, password, role, salon_id, company_id } = req.body;
 
     if (!JWT_SECRET || !JWT_EXPIRY) {
         throw new ApiError(500, 'Server auth configuration is missing');
     }
 
+    const requirePrivilegedRegisterToken = String(process.env.REQUIRE_ADMIN_TOKEN_FOR_PRIVILEGED_REGISTER || 'false').toLowerCase() === 'true';
+    if (requirePrivilegedRegisterToken && ['superuser', 'admin', 'staff'].includes(String(role || '').toLowerCase())) {
+        const authHeader = req.headers.authorization || '';
+        const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+        if (!bearerToken) {
+            throw new ApiError(403, 'Creating privileged accounts requires admin authorization', { expose: true });
+        }
+
+        let actor = null;
+        try {
+            actor = jwt.verify(bearerToken, JWT_SECRET);
+        } catch {
+            throw new ApiError(403, 'Invalid admin authorization token', { expose: true });
+        }
+
+        if (!['superuser', 'admin'].includes(String(actor?.role || '').toLowerCase())) {
+            throw new ApiError(403, 'Only admin or superuser can create privileged accounts', { expose: true });
+        }
+    }
+
     // Check if user already exists
     const { data: existingUser, error: checkError } = await supabase
         .from("users")
-        .select("id")
+        .select("id, username")
         .eq("email", email)
         .maybeSingle();
 
-    if (checkError) {
-        throw new ApiError(500, checkError.message);
-    }
+    if (checkError) throw new ApiError(500, checkError.message);
     if (existingUser) {
         throw new ApiError(409, 'Email already registered', { expose: true });
+    }
+
+    if (username) {
+        const { data: existingUsername, error: usernameError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('username', username)
+            .maybeSingle();
+
+        if (usernameError) throw new ApiError(500, usernameError.message);
+        if (existingUsername) {
+            throw new ApiError(409, 'Username already registered', { expose: true });
+        }
     }
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create user
-    let { data, error } = await supabase
+    const { data, error } = await supabase
         .from("users")
-        .insert([{ name, email, password: hashedPassword, role, salon_id: salon_id || null }])
-        .select('id, name, email, role, salon_id');
-
-    if (error && isMissingColumnError(error, 'salon_id')) {
-        const legacyRes = await supabase
-            .from('users')
-            .insert([{ name, email, password: hashedPassword, role }])
-            .select('id, name, email, role');
-        data = legacyRes.data;
-        error = legacyRes.error;
-    }
+        .insert([
+            {
+                name,
+                email,
+                username: username || null,
+                password: hashedPassword,
+                role,
+                company_id: company_id || null,
+                salon_id: salon_id || null,
+            },
+        ])
+        .select('id, name, email, username, role, company_id, salon_id');
 
     if (error) throw new ApiError(500, error.message);
 
@@ -64,6 +89,7 @@ export const register = async (req, res) => {
             userId: data[0].id,
             email: data[0].email,
             role: data[0].role,
+            company_id: data[0].company_id || null,
             salon_id: data[0].salon_id || null,
         },
         JWT_SECRET,
@@ -85,27 +111,28 @@ export const login = async (req, res) => {
     const JWT_SECRET = process.env.JWT_SECRET;
     const JWT_EXPIRY = process.env.JWT_EXPIRY;
     
-    const { email, password } = req.body;
+    const identifier = String(req.body.identifier || req.body.email || '').trim();
+    const { password } = req.body;
 
     if (!JWT_SECRET || !JWT_EXPIRY) {
         throw new ApiError(500, 'Server auth configuration is missing');
     }
 
-    // Find user
+    // Find user by email or username
     let { data: user, error } = await supabase
         .from("users")
-        .select("id, name, email, password, role, salon_id")
-        .eq("email", email)
+        .select("id, name, email, username, password, role, company_id, salon_id")
+        .eq("email", identifier)
         .maybeSingle();
 
-    if (error && isMissingColumnError(error, 'salon_id')) {
-        const legacyRes = await supabase
+    if (!user && !error) {
+        const usernameRes = await supabase
             .from('users')
-            .select('id, name, email, password, role')
-            .eq('email', email)
+            .select('id, name, email, username, password, role, company_id, salon_id')
+            .eq('username', identifier)
             .maybeSingle();
-        user = legacyRes.data;
-        error = legacyRes.error;
+        user = usernameRes.data;
+        error = usernameRes.error;
     }
 
     if (error) throw new ApiError(500, error.message);
@@ -125,6 +152,7 @@ export const login = async (req, res) => {
             userId: user.id,
             email: user.email,
             role: user.role,
+            company_id: user.company_id || null,
             salon_id: user.salon_id || null,
         },
         JWT_SECRET,
@@ -151,19 +179,9 @@ export const getCurrentUser = async (req, res) => {
 
     let { data, error } = await supabase
         .from("users")
-        .select('id, name, email, role, salon_id, created_at, updated_at')
+        .select('id, name, email, username, role, company_id, salon_id, created_at, updated_at')
         .eq("id", userId)
         .maybeSingle();
-
-    if (error && (isMissingColumnError(error, 'salon_id') || isMissingColumnError(error, 'updated_at'))) {
-        const legacyRes = await supabase
-            .from('users')
-            .select('id, name, email, role, created_at')
-            .eq('id', userId)
-            .maybeSingle();
-        data = legacyRes.data;
-        error = legacyRes.error;
-    }
 
     if (error) throw new ApiError(500, error.message);
     if (!data) throw new ApiError(404, 'User not found', { expose: true });
