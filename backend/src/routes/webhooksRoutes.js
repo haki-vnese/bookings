@@ -51,6 +51,16 @@ async function processForminatorPayload(body) {
     'customer_email',
     'customerEmail',
   ]);
+  const customerPhoneRaw = getAny(normalized, [
+    'phone',
+    'phone_1',
+    'phone_number',
+    'customer_phone',
+    'customerPhone',
+    'tel',
+    'telephone',
+    'mobile',
+  ]);
   const notes = String(getAny(normalized, ['textarea_1', 'notes', 'note', 'message']) || '');
 
   const serviceCandidates = collectSelectionCandidates(normalized, [
@@ -79,6 +89,7 @@ async function processForminatorPayload(body) {
   const flatTime = getAny(normalized, ['time_1', 'appointment_time', 'time']);
 
   const customerEmail = typeof customerEmailRaw === 'string' ? customerEmailRaw.trim().toLowerCase() : null;
+  const customerPhone = typeof customerPhoneRaw === 'string' ? customerPhoneRaw.trim() : null;
   const customerNameClean = typeof customerName === 'string' ? customerName.trim() : '';
   const resolvedName = customerNameClean || buildNameFromParts(normalized) || customerEmail;
   const salonId = await resolveSalonId(salonCandidates);
@@ -101,6 +112,7 @@ async function processForminatorPayload(body) {
     customerId: customerIdInput,
     email: customerEmail,
     name: resolvedName,
+    phone: customerPhone,
     salonId,
   });
 
@@ -297,26 +309,47 @@ function buildLookupKeys(value) {
   return [...keys].filter(Boolean);
 }
 
-async function resolveCustomer({ customerId, email, name, salonId }) {
+async function resolveCustomer({ customerId, email, name, phone, salonId }) {
   if (customerId && isUuid(customerId)) {
-    let byIdQuery = supabase.from('customers').select('id').eq('id', customerId);
+    let byIdQuery = supabase.from('customers').select('id, name, email, phone').eq('id', customerId);
     if (salonId) byIdQuery = byIdQuery.eq('salon_id', salonId);
     const { data: existingById, error: byIdError } = await byIdQuery.maybeSingle();
 
     if (byIdError) throw byIdError;
-    if (existingById?.id) return existingById.id;
+    if (existingById?.id) {
+      const updateById = {};
+      if (name && !existingById.name) updateById.name = name;
+      if (phone && !existingById.phone) updateById.phone = phone;
+      if (Object.keys(updateById).length > 0) {
+        const { error: updateByIdError } = await supabase
+          .from('customers')
+          .update(updateById)
+          .eq('id', existingById.id);
+        if (updateByIdError) throw updateByIdError;
+      }
+      return existingById.id;
+    }
   }
 
   if (!email) {
     throw new Error('Customer email is required when customer_id is not resolvable');
   }
 
-  let existingQuery = supabase.from('customers').select('id').eq('email', email);
+  let existingQuery = supabase.from('customers').select('id, name, phone').eq('email', email);
   if (salonId) existingQuery = existingQuery.eq('salon_id', salonId);
   const { data: existing, error: selectError } = await existingQuery.maybeSingle();
 
   if (selectError) throw selectError;
-  if (existing?.id) return existing.id;
+  if (existing?.id) {
+    const updates = {};
+    if (name && !existing.name) updates.name = name;
+    if (phone && !existing.phone) updates.phone = phone;
+    if (Object.keys(updates).length > 0) {
+      const { error: updateError } = await supabase.from('customers').update(updates).eq('id', existing.id);
+      if (updateError) throw updateError;
+    }
+    return existing.id;
+  }
 
   const effectiveSalonId = salonId || process.env.FORMINATOR_DEFAULT_SALON_ID || (await resolveSingleSalonId());
   if (!effectiveSalonId) {
@@ -327,7 +360,7 @@ async function resolveCustomer({ customerId, email, name, salonId }) {
 
   const { data: created, error: createError } = await supabase
     .from('customers')
-    .insert([{ name: name || email, email, salon_id: effectiveSalonId }])
+    .insert([{ name: name || email, email, phone: phone || null, salon_id: effectiveSalonId }])
     .select('id')
     .single();
   if (createError) throw createError;

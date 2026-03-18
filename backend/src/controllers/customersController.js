@@ -1,7 +1,7 @@
 import { supabase } from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
 
-const CUSTOMER_SELECT_FIELDS = 'id, name, email, company_id, salon_id, created_at, updated_at, created_by, updated_by';
+const CUSTOMER_SELECT_FIELDS = 'id, name, email, phone, company_id, salon_id, created_at, updated_at, created_by, updated_by';
 
 const isSuperuser = (req) => req.user?.role === 'superuser';
 const isAdmin = (req) => req.user?.role === 'admin';
@@ -66,11 +66,12 @@ export const getCustomerById = async (req, res) => {
 };
 
 export const createCustomer = async (req, res) => {
-  const { name, email, salon_id } = req.body;
+  const { name, email, phone, salon_id } = req.body;
 
   const payload = {
     name,
     email,
+    phone: phone || null,
     company_id: null,
     created_by: req.user?.userId,
     updated_by: req.user?.userId,
@@ -99,11 +100,12 @@ export const createCustomer = async (req, res) => {
 
 export const updateCustomer = async (req, res) => {
   const { id } = req.params;
-  const { name, email, salon_id, company_id } = req.body;
+  const { name, email, phone, salon_id, company_id } = req.body;
 
   const updates = {
     ...(name !== undefined ? { name } : {}),
     ...(email !== undefined ? { email } : {}),
+    ...(phone !== undefined ? { phone } : {}),
     updated_by: req.user?.userId,
   };
 

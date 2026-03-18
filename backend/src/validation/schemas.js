@@ -82,7 +82,13 @@ export const userSchemas = {
       'any.only': 'Role must be one of "superuser", "admin", or "staff"',
     }),
     company_id: Joi.string().uuid().allow(null).optional(),
-    salon_id: Joi.string().uuid().allow(null).optional(),
+    salon_id: Joi.when('role', {
+      is: 'staff',
+      then: Joi.string().uuid().required().messages({
+        'any.required': 'salon_id is required for staff users',
+      }),
+      otherwise: Joi.string().uuid().allow(null).optional(),
+    }),
   }),
   update: Joi.object({
     name: Joi.string().max(255).optional(),
@@ -136,11 +142,13 @@ export const customerSchemas = {
     email: Joi.string().email().required().max(255).messages({
       'string.email': 'Must be a valid email address',
     }),
+    phone: Joi.string().max(30).allow('', null).optional(),
     salon_id: Joi.string().uuid().optional(),
   }),
   update: Joi.object({
     name: Joi.string().max(255).optional(),
     email: Joi.string().email().max(255).optional(),
+    phone: Joi.string().max(30).allow('', null).optional(),
     salon_id: Joi.string().uuid().allow(null).optional(),
   }).min(1),
 };
