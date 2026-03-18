@@ -5,7 +5,7 @@ function filterCustomers(rows, filters) {
   return rows.filter((row) => {
     if (salon && row.salon_id !== salon) return false;
     if (!q) return true;
-    const haystack = [row.name, row.email, row.salon_name, row.salon_id]
+    const haystack = [row.name, row.email, row.phone, row.salon_name, row.salon_id]
       .map((value) => String(value || '').toLowerCase())
       .join(' ');
     return haystack.includes(q);
@@ -16,7 +16,6 @@ function renderCustomerModal(state, helpers, role) {
   const { esc } = helpers;
   const editingId = state.modal.type === 'edit-customer' ? state.modal.rowId : null;
   const editingRow = state.data.customers.find((row) => row.id === editingId) || null;
-  const isCreate = state.modal.type === 'create-customer';
   const companies = state.data.companies || [];
   const salons = state.data.salons || [];
   const selectedCompanyId = editingRow?.company_id || '';
@@ -25,18 +24,19 @@ function renderCustomerModal(state, helpers, role) {
     ? (selectedCompanyId ? salons.filter((row) => row.company_id === selectedCompanyId) : salons)
     : salons;
 
-  if (!isCreate && !editingRow) return '';
+  if (!editingRow) return '';
 
   return `
     <div class="nd-modal-backdrop" data-action="close-customer-modal">
       <div class="nd-modal" role="dialog" aria-modal="true" aria-label="Customer form" onclick="event.stopPropagation()">
         <div class="nd-panel-head">
-          <h3>${isCreate ? 'Add Customer' : 'Edit Customer'}</h3>
+          <h3>Edit Customer</h3>
           <button class="nd-ghost" data-action="close-customer-modal">Close</button>
         </div>
         <form id="nd-customer-modal-form" class="nd-modal-form" data-id="${esc(editingRow?.id || '')}">
           <input name="name" required placeholder="Customer name" value="${esc(editingRow?.name || '')}" />
           <input name="email" type="email" required placeholder="Email" value="${esc(editingRow?.email || '')}" />
+          <input name="phone" placeholder="Phone" value="${esc(editingRow?.phone || '')}" />
           ${role === 'superuser' ? `
             <select name="company_id">
               <option value="">No company</option>
@@ -51,7 +51,7 @@ function renderCustomerModal(state, helpers, role) {
               .map((row) => `<option value="${esc(row.id)}" ${selectedSalonId === row.id ? 'selected' : ''}>${esc(row.name)}</option>`)
               .join('')}
           </select>
-          <button type="submit">${isCreate ? 'Create' : 'Save'}</button>
+          <button type="submit">Save</button>
         </form>
       </div>
     </div>
@@ -62,7 +62,7 @@ export function renderCustomersPanel(state, helpers) {
   const { canManage, esc } = helpers;
   const role = String(state.user?.role || '').toLowerCase();
   const rows = filterCustomers(state.data.customers || [], state.filters.customer || {});
-  const canCreate = canManage(role);
+  const canEdit = canManage(role);
   const salons = state.data.salons || [];
   const salonsById = new Map(salons.map((row) => [row.id, row.name]));
 
@@ -72,11 +72,10 @@ export function renderCustomersPanel(state, helpers) {
         <h3>Customers</h3>
         <div class="nd-row-actions">
           <button class="nd-ghost" data-action="refresh-data">Refresh</button>
-          ${canCreate ? '<button data-action="open-create-customer">Add Customer</button>' : ''}
         </div>
       </div>
       <form id="nd-customer-filter" class="nd-filters">
-        <input name="q" placeholder="Search by name, email, salon" value="${esc(state.filters.customer.q || '')}" />
+        <input name="q" placeholder="Search by name, email, phone, salon" value="${esc(state.filters.customer.q || '')}" />
         <select name="salon">
           <option value="">All salons</option>
           ${salons
@@ -92,6 +91,7 @@ export function renderCustomersPanel(state, helpers) {
             <tr>
               <th>Name</th>
               <th>Email</th>
+              <th>Phone</th>
               <th>Salon</th>
               <th>Action</th>
             </tr>
@@ -105,10 +105,11 @@ export function renderCustomersPanel(state, helpers) {
                         <tr>
                           <td>${esc(row.name)}</td>
                           <td>${esc(row.email)}</td>
+                          <td>${esc(row.phone || '-')}</td>
                           <td>${esc(row.salon_name || salonsById.get(row.salon_id) || row.salon_id || '-')}</td>
                           <td>
                             ${
-                              canCreate
+                              canEdit
                                 ? `<div class="nd-row-actions"><button class="nd-secondary" data-action="open-edit-customer" data-id="${esc(row.id)}">Edit</button><button class="nd-danger" data-action="delete-customer" data-id="${esc(row.id)}">Delete</button></div>`
                                 : '-'
                             }
@@ -117,7 +118,7 @@ export function renderCustomersPanel(state, helpers) {
                       `
                     )
                     .join('')
-                : '<tr><td colspan="4" class="nd-empty">No customers yet.</td></tr>'
+                : '<tr><td colspan="5" class="nd-empty">No customers yet.</td></tr>'
             }
           </tbody>
         </table>
@@ -151,14 +152,6 @@ export function bindCustomersEvents(ctx) {
   app.querySelectorAll('[data-action="clear-customer-filter"]').forEach((button) => {
     button.addEventListener('click', () => {
       state.filters.customer = { q: '', salon: '' };
-      render();
-    });
-  });
-
-  app.querySelectorAll('[data-action="open-create-customer"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      state.modal.type = 'create-customer';
-      state.modal.rowId = null;
       render();
     });
   });
@@ -205,6 +198,7 @@ export function bindCustomersEvents(ctx) {
       const payload = {
         name: String(formData.get('name') || '').trim(),
         email: String(formData.get('email') || '').trim(),
+        phone: String(formData.get('phone') || '').trim() || null,
         salon_id: String(formData.get('salon_id') || '').trim(),
       };
 
@@ -212,11 +206,8 @@ export function bindCustomersEvents(ctx) {
       if (companyId) payload.company_id = companyId;
 
       try {
-        if (state.modal.type === 'edit-customer' && id) {
-          await client.updateCustomer(id, payload);
-        } else {
-          await client.createCustomer(payload);
-        }
+        if (state.modal.type !== 'edit-customer' || !id) return;
+        await client.updateCustomer(id, payload);
         state.modal.type = null;
         state.modal.rowId = null;
         await refreshData();
