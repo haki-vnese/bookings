@@ -112,24 +112,25 @@ export const login = async (req, res) => {
     const JWT_EXPIRY = process.env.JWT_EXPIRY;
     
     const identifier = String(req.body.identifier || req.body.email || '').trim();
+    const normalizedIdentifier = identifier.toLowerCase();
     const { password } = req.body;
 
     if (!JWT_SECRET || !JWT_EXPIRY) {
         throw new ApiError(500, 'Server auth configuration is missing');
     }
 
-    // Find user by email or username
+    // Find user by email or username (case-insensitive)
     let { data: user, error } = await supabase
         .from("users")
         .select("id, name, email, username, password, role, company_id, salon_id")
-        .eq("email", identifier)
+        .ilike("email", normalizedIdentifier)
         .maybeSingle();
 
     if (!user && !error) {
         const usernameRes = await supabase
             .from('users')
             .select('id, name, email, username, password, role, company_id, salon_id')
-            .eq('username', identifier)
+            .ilike('username', identifier)
             .maybeSingle();
         user = usernameRes.data;
         error = usernameRes.error;
@@ -140,8 +141,30 @@ export const login = async (req, res) => {
         throw new ApiError(401, 'Invalid email or password', { expose: true });
     }
 
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    // Verify password with compatibility for legacy plain-text rows.
+    let isPasswordValid = false;
+    const storedPassword = typeof user.password === 'string' ? user.password : '';
+    const isBcryptHash = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(storedPassword);
+
+    if (isBcryptHash) {
+        isPasswordValid = await bcrypt.compare(password, storedPassword);
+    } else if (storedPassword) {
+        isPasswordValid = password === storedPassword;
+
+        // One-time migration from plain text to bcrypt after successful login.
+        if (isPasswordValid) {
+            const migratedHash = await bcrypt.hash(password, 10);
+            const { error: migrateError } = await supabase
+                .from('users')
+                .update({ password: migratedHash })
+                .eq('id', user.id);
+
+            if (migrateError) {
+                console.error('Password migration failed for user', user.id, migrateError.message);
+            }
+        }
+    }
+
     if (!isPasswordValid) {
         throw new ApiError(401, 'Invalid email or password', { expose: true });
     }

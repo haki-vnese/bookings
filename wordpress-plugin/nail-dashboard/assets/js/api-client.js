@@ -80,10 +80,21 @@ export class NDClient {
   }
 
   async login(identifier, password) {
-    // Backward-compatible payload: newer APIs use `identifier`, older ones require `email`.
+    const trimmedIdentifier = String(identifier || '').trim();
+    const payload = {
+      identifier: trimmedIdentifier,
+      password,
+    };
+
+    // Only include `email` when identifier looks like an email; this avoids
+    // server-side email format validation failures when users type usernames.
+    if (trimmedIdentifier.includes('@')) {
+      payload.email = trimmedIdentifier;
+    }
+
     return this.request('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ identifier, email: identifier, password }),
+      body: JSON.stringify(payload),
     });
   }
 
