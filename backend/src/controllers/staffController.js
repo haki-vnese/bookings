@@ -16,8 +16,8 @@ function isStaff(req) {
 }
 
 function ensureAdminCompany(req) {
-  if (isAdmin(req) && !req.user?.company_id) {
-    throw new ApiError(403, 'Admin account is missing company scope', { expose: true });
+  if (isAdmin(req) && !req.user?.company_id && !req.user?.salon_id) {
+    throw new ApiError(403, 'Admin account is missing scope', { expose: true });
   }
 }
 
@@ -25,7 +25,8 @@ function applyStaffScope(query, req) {
   if (isSuperuser(req)) return query;
   if (isAdmin(req)) {
     ensureAdminCompany(req);
-    return query.eq('company_id', req.user.company_id);
+    if (req.user.company_id) return query.eq('company_id', req.user.company_id);
+    return query.eq('salon_id', req.user.salon_id);
   }
   if (isStaff(req)) {
     return query.eq('user_id', req.user.userId);
