@@ -99,6 +99,11 @@ export class NDClient {
   }
 
   async me() {
+    if (!this.token) {
+      const error = new Error('No token provided');
+      error.status = 401;
+      throw error;
+    }
     return this.request('/auth/me', { method: 'GET' });
   }
 

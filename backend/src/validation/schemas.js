@@ -30,14 +30,14 @@ export const authSchemas = {
     identifier: Joi.string().min(3).max(255).optional().messages({
       'string.empty': 'Email or username is required',
     }),
+    email: Joi.string().min(3).max(255).optional().messages({
+      'string.empty': 'Email or username is required',
+    }),
     password: Joi.string().required().messages({
       'string.empty': 'Password is required',
     }),
   })
-    .or('identifier', 'email')
-    .keys({
-      email: Joi.string().email().optional(),
-    }),
+    .or('identifier', 'email'),
 };
 
 // Services validation schemas
