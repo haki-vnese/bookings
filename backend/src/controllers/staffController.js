@@ -25,8 +25,10 @@ function applyStaffScope(query, req) {
   if (isSuperuser(req)) return query;
   if (isAdmin(req)) {
     ensureAdminCompany(req);
-    if (req.user.company_id) return query.eq('company_id', req.user.company_id);
-    return query.eq('salon_id', req.user.salon_id);
+    let scoped = query;
+    if (req.user.company_id) scoped = scoped.eq('company_id', req.user.company_id);
+    if (req.user.salon_id) scoped = scoped.eq('salon_id', req.user.salon_id);
+    return scoped;
   }
   if (isStaff(req)) {
     return query.eq('user_id', req.user.userId);
