@@ -137,23 +137,30 @@ async function refreshData() {
   const role = String(state.user?.role || '').toLowerCase();
   const canReadManageData = canManage(role);
   const isStaffOnly = role === 'staff';
-  const technicianId = String(state.user?.id || state.user?.userId || '').trim();
 
-  const bookingsPromise = isStaffOnly && technicianId
-    ? requestOrFallback(client.getBookingsByTechnician(technicianId), [], { throwOnAdminScopeError: false })
+  const myStaff = isStaffOnly
+    ? await requestOrFallback(client.getMyStaff(), null, { throwOnAdminScopeError: false })
+    : null;
+  const technicianId = isStaffOnly
+    ? String(myStaff?.user_id || myStaff?.staff_id || state.user?.id || state.user?.userId || '').trim()
+    : '';
+
+  const bookingsPromise = isStaffOnly
+    ? (technicianId
+      ? requestOrFallback(client.getBookingsByTechnician(technicianId), [], { throwOnAdminScopeError: false })
+      : Promise.resolve([]))
     : requestOrFallback(client.getBookings(), [], { throwOnAdminScopeError: canReadManageData });
 
   let bookings;
   let customers;
   let users;
   let staff;
-  let myStaff;
   let services;
   let companies;
   let salons;
 
   try {
-    [bookings, customers, users, staff, myStaff, services, companies, salons] = await Promise.all([
+    [bookings, customers, users, staff, services, companies, salons] = await Promise.all([
       bookingsPromise,
       canReadManageData
         ? requestOrFallback(client.getCustomers(), [], { throwOnAdminScopeError: true })
@@ -164,7 +171,6 @@ async function refreshData() {
       canReadManageData
         ? requestOrFallback(client.getStaff(), [], { throwOnAdminScopeError: true })
         : Promise.resolve([]),
-      isStaffOnly ? requestOrFallback(client.getMyStaff(), null, { throwOnAdminScopeError: false }) : Promise.resolve(null),
       requestOrFallback(client.getServices(), [], { throwOnAdminScopeError: false }),
       canReadManageData
         ? requestOrFallback(client.getCompanies(), [], { throwOnAdminScopeError: true })
