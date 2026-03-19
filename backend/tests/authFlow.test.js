@@ -414,8 +414,11 @@ describe('Booking Tenant Isolation', () => {
     let superuserToken;
     let staffBId;
     let customerBId;
+    let staffAId;
+    let customerAId;
     let serviceId;
     let bookingId;
+    let bookingAId;
 
     beforeAll(async () => {
         const { data: salonA, error: salonAError } = await supabase
@@ -507,6 +510,31 @@ describe('Booking Tenant Isolation', () => {
         if (customerBError) throw customerBError;
         customerBId = customerB.id;
 
+        const { data: staffA, error: staffAError } = await supabase
+            .from('users')
+            .insert({
+                name: 'Staff A',
+                email: `staff-a-${Date.now()}@example.com`,
+                role: 'staff',
+                salon_id: salonAId,
+            })
+            .select()
+            .single();
+        if (staffAError) throw staffAError;
+        staffAId = staffA.id;
+
+        const { data: customerA, error: customerAError } = await supabase
+            .from('customers')
+            .insert({
+                name: 'Customer A',
+                email: `customer-a-${Date.now()}@example.com`,
+                salon_id: salonAId,
+            })
+            .select()
+            .single();
+        if (customerAError) throw customerAError;
+        customerAId = customerA.id;
+
         const { data: service, error: serviceError } = await supabase
             .from('services')
             .insert({
@@ -536,17 +564,40 @@ describe('Booking Tenant Isolation', () => {
             .single();
         if (bookingError) throw bookingError;
         bookingId = booking.id;
+
+        const { data: bookingA, error: bookingAError } = await supabase
+            .from('bookings')
+            .insert({
+                technician_id: staffAId,
+                customer_id: customerAId,
+                service_id: serviceId,
+                start_time: new Date(end.getTime() + 60 * 60000).toISOString(),
+                end_time: new Date(end.getTime() + 90 * 60000).toISOString(),
+            })
+            .select()
+            .single();
+        if (bookingAError) throw bookingAError;
+        bookingAId = bookingA.id;
     });
 
     afterAll(async () => {
+        if (bookingAId) {
+            await supabase.from('bookings').delete().eq('id', bookingAId);
+        }
         if (bookingId) {
             await supabase.from('bookings').delete().eq('id', bookingId);
         }
         if (serviceId) {
             await supabase.from('services').delete().eq('id', serviceId);
         }
+        if (customerAId) {
+            await supabase.from('customers').delete().eq('id', customerAId);
+        }
         if (customerBId) {
             await supabase.from('customers').delete().eq('id', customerBId);
+        }
+        if (staffAId) {
+            await supabase.from('users').delete().eq('id', staffAId);
         }
         if (staffBId) {
             await supabase.from('users').delete().eq('id', staffBId);
@@ -587,6 +638,18 @@ describe('Booking Tenant Isolation', () => {
                 service_id: serviceId,
                 start_time: start.toISOString(),
                 end_time: end.toISOString(),
+            });
+
+        expect(res.status).toBe(403);
+    });
+
+    it('should deny admin from reassigning in-scope booking to another salon', async () => {
+        const res = await request(app)
+            .put(`/api/bookings/${bookingAId}`)
+            .set('Authorization', `Bearer ${adminAToken}`)
+            .send({
+                technician_id: staffBId,
+                customer_id: customerBId,
             });
 
         expect(res.status).toBe(403);

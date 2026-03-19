@@ -67,16 +67,26 @@ async function ensureAdminCanAccessBooking(req, booking) {
 
     requireAdminSalon(req);
 
+    await ensureAdminCanAccessBookingParticipants(req, booking.technician_id, booking.customer_id);
+}
+
+async function ensureAdminCanAccessBookingParticipants(req, technicianId, customerId) {
+    if (!isAdmin(req) || isSuperuser(req)) return;
+
+    requireAdminSalon(req);
+
     const [staffScope, customerScope] = await Promise.all([
-        getTechnicianScope(booking.technician_id),
-        getCustomerScope(booking.customer_id),
+        getTechnicianScope(technicianId),
+        getCustomerScope(customerId),
     ]);
 
     if (req.user.company_id) {
         if (staffScope.company_id !== req.user.company_id || customerScope.company_id !== req.user.company_id) {
             throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
         }
-    } else {
+    }
+
+    if (req.user.salon_id) {
         if (staffScope.salon_id !== req.user.salon_id || customerScope.salon_id !== req.user.salon_id) {
             throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
         }
@@ -88,21 +98,22 @@ export const getAllBookings = async (req, res) => {
 
     if (!isSuperuser(req)) {
         requireAdminSalon(req);
-        const scopeField = req.user.company_id ? 'company_id' : 'salon_id';
-        const scopeValue = req.user.company_id || req.user.salon_id;
+        let staffByUserQuery = supabase.from('users').select('id').eq('role', 'staff');
+        let staffByTableQuery = supabase.from('staff').select('staff_id, user_id');
 
-        let staffByUser, staffByTable;
         if (req.user.company_id) {
-            [staffByUser, staffByTable] = await Promise.all([
-                supabase.from('users').select('id').eq('role', 'staff').eq('company_id', scopeValue),
-                supabase.from('staff').select('staff_id, user_id').eq('company_id', scopeValue),
-            ]);
-        } else {
-            [staffByUser, staffByTable] = await Promise.all([
-                supabase.from('users').select('id').eq('role', 'staff').eq('salon_id', scopeValue),
-                supabase.from('staff').select('staff_id, user_id').eq('salon_id', scopeValue),
-            ]);
+            staffByUserQuery = staffByUserQuery.eq('company_id', req.user.company_id);
+            staffByTableQuery = staffByTableQuery.eq('company_id', req.user.company_id);
         }
+        if (req.user.salon_id) {
+            staffByUserQuery = staffByUserQuery.eq('salon_id', req.user.salon_id);
+            staffByTableQuery = staffByTableQuery.eq('salon_id', req.user.salon_id);
+        }
+
+        const [staffByUser, staffByTable] = await Promise.all([
+            staffByUserQuery,
+            staffByTableQuery,
+        ]);
 
         if (staffByUser.error) throw new ApiError(500, staffByUser.error.message);
         if (staffByTable.error) throw new ApiError(500, staffByTable.error.message);
@@ -149,9 +160,9 @@ export const getBookingByTechnician = async (req, res) => {
     if (isAdmin(req) && !isSuperuser(req)) {
         requireAdminSalon(req);
         const staffScope = await getTechnicianScope(technicianId);
-        const allowed = req.user.company_id
-            ? staffScope.company_id === req.user.company_id
-            : staffScope.salon_id === req.user.salon_id;
+        const companyAllowed = req.user.company_id ? staffScope.company_id === req.user.company_id : true;
+        const salonAllowed = req.user.salon_id ? staffScope.salon_id === req.user.salon_id : true;
+        const allowed = companyAllowed && salonAllowed;
         if (!allowed) {
             throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
         }
@@ -171,9 +182,9 @@ export const getBookingByCustomer = async (req, res) => {
     if (isAdmin(req) && !isSuperuser(req)) {
         requireAdminSalon(req);
         const customerScope = await getCustomerScope(customerId);
-        const allowed = req.user.company_id
-            ? customerScope.company_id === req.user.company_id
-            : customerScope.salon_id === req.user.salon_id;
+        const companyAllowed = req.user.company_id ? customerScope.company_id === req.user.company_id : true;
+        const salonAllowed = req.user.salon_id ? customerScope.salon_id === req.user.salon_id : true;
+        const allowed = companyAllowed && salonAllowed;
         if (!allowed) {
             throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
         }
@@ -191,20 +202,7 @@ export const getBookingByCustomer = async (req, res) => {
 export const createBooking = async (req, res) => {
     const booking = req.body;
     if (isAdmin(req) && !isSuperuser(req)) {
-        requireAdminSalon(req);
-        const [staffScope, customerScope] = await Promise.all([
-            getTechnicianScope(booking.technician_id),
-            getCustomerScope(booking.customer_id),
-        ]);
-        if (req.user.company_id) {
-            if (staffScope.company_id !== req.user.company_id || customerScope.company_id !== req.user.company_id) {
-                throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
-            }
-        } else {
-            if (staffScope.salon_id !== req.user.salon_id || customerScope.salon_id !== req.user.salon_id) {
-                throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
-            }
-        }
+        await ensureAdminCanAccessBookingParticipants(req, booking.technician_id, booking.customer_id);
     }
 
     if (!isAdmin(req)) {
@@ -230,8 +228,14 @@ export const updateBooking = async (req, res) => {
     if (!existing) throw new ApiError(404, 'Booking not found', { expose: true });
     if (isAdmin(req)) {
         await ensureAdminCanAccessBooking(req, existing);
+        const targetTechnicianId = updates.technician_id || existing.technician_id;
+        const targetCustomerId = updates.customer_id || existing.customer_id;
+        await ensureAdminCanAccessBookingParticipants(req, targetTechnicianId, targetCustomerId);
     } else {
         if (!isCustomer(req) || existing.customer_id !== req.user.userId) {
+            throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
+        }
+        if (updates.customer_id && updates.customer_id !== req.user.userId) {
             throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
         }
     }
