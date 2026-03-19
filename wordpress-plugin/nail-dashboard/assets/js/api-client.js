@@ -111,6 +111,10 @@ export class NDClient {
     return this.request('/bookings', { method: 'GET' });
   }
 
+  async getBookingsByTechnician(technicianId) {
+    return this.request(`/bookings/technician/${technicianId}`, { method: 'GET' });
+  }
+
   async updateBooking(bookingId, payload) {
     return this.request(`/bookings/${bookingId}`, {
       method: 'PUT',

@@ -171,7 +171,30 @@ export const getBookingByTechnician = async (req, res) => {
     if (!isAdmin(req) && (!isTechnician(req) || technicianId !== req.user.userId)) {
         throw new ApiError(403, 'Forbidden: insufficient permissions', { expose: true });
     }
-    const { data, error } = await supabase.from('bookings').select('*').eq('technician_id', technicianId);
+
+    const technicianIds = new Set([technicianId]);
+    const [staffById, staffByUser] = await Promise.all([
+        supabase.from('staff').select('staff_id, user_id').eq('staff_id', technicianId).maybeSingle(),
+        supabase.from('staff').select('staff_id, user_id').eq('user_id', technicianId).maybeSingle(),
+    ]);
+
+    if (staffById.error) throw new ApiError(500, staffById.error.message);
+    if (staffByUser.error) throw new ApiError(500, staffByUser.error.message);
+
+    if (staffById.data?.staff_id) technicianIds.add(staffById.data.staff_id);
+    if (staffById.data?.user_id) technicianIds.add(staffById.data.user_id);
+    if (staffByUser.data?.staff_id) technicianIds.add(staffByUser.data.staff_id);
+    if (staffByUser.data?.user_id) technicianIds.add(staffByUser.data.user_id);
+
+    let query = supabase.from('bookings').select('*');
+    const allTechnicianIds = Array.from(technicianIds);
+    if (allTechnicianIds.length === 1) {
+        query = query.eq('technician_id', allTechnicianIds[0]);
+    } else {
+        query = query.in('technician_id', allTechnicianIds);
+    }
+
+    const { data, error } = await query;
     if (error) throw new ApiError(500, error.message);
     res.status(200).json(data);
 }

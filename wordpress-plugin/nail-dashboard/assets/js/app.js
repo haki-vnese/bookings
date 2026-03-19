@@ -39,6 +39,24 @@ const helpers = {
   filterBookings,
 };
 
+function isAdminScopeError(error) {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || '').toLowerCase();
+  return status === 403 && message.includes('missing scope');
+}
+
+async function requestOrFallback(requestPromise, fallbackValue, options = {}) {
+  const { throwOnAdminScopeError = false } = options;
+  try {
+    return await requestPromise;
+  } catch (error) {
+    if (throwOnAdminScopeError && isAdminScopeError(error)) {
+      throw error;
+    }
+    return fallbackValue;
+  }
+}
+
 function renderPanel() {
   if (state.error) {
     return `<section class="nd-panel"><p class="nd-error">${esc(state.error)}</p></section>`;
@@ -114,20 +132,54 @@ function renderShell() {
 }
 
 async function refreshData() {
+  state.error = '';
+
   const role = String(state.user?.role || '').toLowerCase();
   const canReadManageData = canManage(role);
   const isStaffOnly = role === 'staff';
+  const technicianId = String(state.user?.id || state.user?.userId || '').trim();
 
-  const [bookings, customers, users, staff, myStaff, services, companies, salons] = await Promise.all([
-    client.getBookings().catch(() => []),
-    canReadManageData ? client.getCustomers().catch(() => []) : Promise.resolve([]),
-    canReadManageData ? client.getUsers().catch(() => []) : Promise.resolve([]),
-    canReadManageData ? client.getStaff().catch(() => []) : Promise.resolve([]),
-    isStaffOnly ? client.getMyStaff().catch(() => null) : Promise.resolve(null),
-    client.getServices().catch(() => []),
-    canReadManageData ? client.getCompanies().catch(() => []) : Promise.resolve([]),
-    canReadManageData ? client.getSalons().catch(() => []) : Promise.resolve([]),
-  ]);
+  const bookingsPromise = isStaffOnly && technicianId
+    ? requestOrFallback(client.getBookingsByTechnician(technicianId), [], { throwOnAdminScopeError: false })
+    : requestOrFallback(client.getBookings(), [], { throwOnAdminScopeError: canReadManageData });
+
+  let bookings;
+  let customers;
+  let users;
+  let staff;
+  let myStaff;
+  let services;
+  let companies;
+  let salons;
+
+  try {
+    [bookings, customers, users, staff, myStaff, services, companies, salons] = await Promise.all([
+      bookingsPromise,
+      canReadManageData
+        ? requestOrFallback(client.getCustomers(), [], { throwOnAdminScopeError: true })
+        : Promise.resolve([]),
+      canReadManageData
+        ? requestOrFallback(client.getUsers(), [], { throwOnAdminScopeError: true })
+        : Promise.resolve([]),
+      canReadManageData
+        ? requestOrFallback(client.getStaff(), [], { throwOnAdminScopeError: true })
+        : Promise.resolve([]),
+      isStaffOnly ? requestOrFallback(client.getMyStaff(), null, { throwOnAdminScopeError: false }) : Promise.resolve(null),
+      requestOrFallback(client.getServices(), [], { throwOnAdminScopeError: false }),
+      canReadManageData
+        ? requestOrFallback(client.getCompanies(), [], { throwOnAdminScopeError: true })
+        : Promise.resolve([]),
+      canReadManageData
+        ? requestOrFallback(client.getSalons(), [], { throwOnAdminScopeError: true })
+        : Promise.resolve([]),
+    ]);
+  } catch (error) {
+    if (isAdminScopeError(error)) {
+      state.error = 'Admin account is missing scope. Ask a superuser to set your company or salon scope.';
+      return;
+    }
+    throw error;
+  }
 
   const salonsRows = asArray(salons);
   const usersRows = asArray(users);
@@ -161,6 +213,10 @@ async function bootstrapSession() {
     client.setUser(state.user);
     await refreshData();
   } catch (error) {
+    if (isAdminScopeError(error) && state.user) {
+      state.error = 'Admin account is missing scope. Ask a superuser to set your company or salon scope.';
+      return;
+    }
     client.clearSession();
     state.user = null;
     state.error = error.message || 'Session expired';

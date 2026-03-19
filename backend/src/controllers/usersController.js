@@ -90,6 +90,22 @@ function applyUserVisibilityScope(query, req) {
     return query;
 }
 
+async function withSalonName(userRows) {
+    const rows = Array.isArray(userRows) ? userRows : [];
+    const salonIds = [...new Set(rows.map((row) => row.salon_id).filter(Boolean))];
+    if (salonIds.length === 0) return rows;
+
+    const { data: salons, error } = await supabase
+        .from('salons')
+        .select('id, name')
+        .in('id', salonIds);
+
+    if (error) return rows;
+
+    const salonMap = new Map((salons || []).map((salon) => [salon.id, salon.name]));
+    return rows.map((row) => ({ ...row, salon_name: row.salon_id ? salonMap.get(row.salon_id) || null : null }));
+}
+
 export const getAllUsers = async (req, res) => {
     let query = supabase.from('users').select(USER_SELECT_FIELDS).neq('role', 'customer');
     query = applyUserVisibilityScope(query, req);
@@ -97,7 +113,7 @@ export const getAllUsers = async (req, res) => {
     const { data, error } = await query;
 
     if (error) throw new ApiError(500, error.message);
-    res.json(data);
+    res.json(await withSalonName(data || []));
 }   
 
 export const getUserById = async (req, res) => {
@@ -114,7 +130,8 @@ export const getUserById = async (req, res) => {
 
         if (error) throw new ApiError(500, error.message);
         if (!data) throw new ApiError(404, 'User not found', { expose: true });
-        res.json(data);
+        const rows = await withSalonName([data]);
+        res.json(rows[0]);
 }
 
 export const createUser = async (req, res) => {
@@ -246,7 +263,7 @@ export const getStaff = async (req, res) => {
     const { data, error } = await query;
 
     if (error) throw new ApiError(500, error.message);
-    res.json(data);
+    res.json(await withSalonName(data || []));
 }       
 
 export const updateCurrentUser = async (req, res) => {
