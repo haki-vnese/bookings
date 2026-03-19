@@ -138,18 +138,23 @@ async function refreshData() {
   const canReadManageData = canManage(role);
   const isStaffOnly = role === 'staff';
 
-  const myStaff = isStaffOnly
+  const shouldFetchMyStaff = isStaffOnly || !canReadManageData;
+  const myStaff = shouldFetchMyStaff
     ? await requestOrFallback(client.getMyStaff(), null, { throwOnAdminScopeError: false })
     : null;
-  const technicianId = isStaffOnly
+  const hasStaffProfile = Boolean(myStaff?.staff_id || myStaff?.user_id);
+  const shouldUseTechnicianRoute = isStaffOnly || hasStaffProfile;
+  const technicianId = shouldUseTechnicianRoute
     ? String(myStaff?.user_id || myStaff?.staff_id || state.user?.id || state.user?.userId || '').trim()
     : '';
 
-  const bookingsPromise = isStaffOnly
+  const bookingsPromise = shouldUseTechnicianRoute
     ? (technicianId
       ? requestOrFallback(client.getBookingsByTechnician(technicianId), [], { throwOnAdminScopeError: false })
       : Promise.resolve([]))
-    : requestOrFallback(client.getBookings(), [], { throwOnAdminScopeError: canReadManageData });
+    : (canReadManageData
+      ? requestOrFallback(client.getBookings(), [], { throwOnAdminScopeError: canReadManageData })
+      : Promise.resolve([]));
 
   let bookings;
   let customers;
