@@ -1,3 +1,15 @@
+/**
+ * Application entry point.
+ *
+ * Bootstraps the Express server, mounts all route trees, and wires
+ * global middleware (CORS, JSON parsing, request logging, error
+ * handling).  Exits immediately when required environment variables
+ * are missing to avoid masked failures at runtime.
+ *
+ * Route prefix convention:
+ *   /api/*       — authenticated REST endpoints
+ *   /webhooks/*  — unauthenticated inbound webhooks (token-gated)
+ */
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -17,14 +29,24 @@ import staffRouter from './src/routes/staffRoutes.js';
 import salonsRouter from './src/routes/salonsRoutes.js';
 import { notFound, errorHandler } from './src/middleware/errorHandler.js';
 
+// ── Fail-fast: verify critical environment variables at startup ─────────
+const REQUIRED_ENV = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'JWT_SECRET'];
+for (const key of REQUIRED_ENV) {
+  if (!process.env[key]) {
+    console.error(`FATAL: Required environment variable ${key} is not set.`);
+    process.exit(1);
+  }
+}
+
+// ── CORS: restrict origins in production, allow all in dev/test ─────────
+const corsOrigin = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+  : '*';
+
 const app = express();
 app.use(express.json());
-app.use(cors({
-    origin: '*',
-})
-);
-app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cors({ origin: corsOrigin }));
 
 // Basic probe endpoints to reduce noisy 404s when opening backend URL in browser.
 app.get('/', (req, res) => {
@@ -44,9 +66,14 @@ app.get('/favicon.ico', (req, res) => {
     res.status(204).end();
 });
 
-// request logging (lightweight)
+// ── Middleware pipeline ──────────────────────────────────────────────────
+// Request logger runs first so every request (including errors) is logged.
 app.use(requestLogger);
+
+// ── Route mounting ──────────────────────────────────────────────────────
+// Auth endpoints are public (register, login) + protected (me, logout).
 app.use('/api/auth', authRouter);
+// Resource endpoints — each route file handles its own auth gates.
 app.use('/api/services', servicesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/customers', customersRouter);
@@ -56,7 +83,8 @@ app.use('/api/staff', staffRouter);
 app.use('/api/technician-services', technicianServicesRouter);
 app.use('/api/bookings', bookingRouter);
 app.use('/api/availability', availabilityRouter);
-app.use('/webhooks', webhookRouter); // add this before notFound
+// Webhook routes sit outside /api/* — they are token-gated, not JWT-gated.
+app.use('/webhooks', webhookRouter);
 
 // 404 handler
 app.use(notFound);
