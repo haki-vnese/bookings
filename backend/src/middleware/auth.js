@@ -1,3 +1,15 @@
+/**
+ * Authentication & authorisation middleware.
+ *
+ * Two middleware functions exported:
+ *   • `verifyAuth`  — decodes & verifies the JWT from the Authorization
+ *                     header, attaches the payload to `req.user`.
+ *   • `authorize`   — factory that returns middleware rejecting requests
+ *                     whose `req.user.role` is not in the allowed list.
+ *
+ * JWT payload shape (set during login):
+ *   { userId, role, company_id?, salon_id? }
+ */
 import jwt from 'jsonwebtoken';
 import ApiError from '../utils/ApiError.js';
 
