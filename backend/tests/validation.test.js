@@ -81,8 +81,10 @@ describe('input validation middleware', () => {
     });
 
     test('missing name -> returns 400 validation error', async () => {
+      const token = await getAdminToken();
       const res = await request(app)
         .post('/api/services')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           description: 'No name provided',
           duration_minutes: 30,
@@ -94,8 +96,10 @@ describe('input validation middleware', () => {
     });
 
     test('invalid duration_minutes (negative) -> returns 400', async () => {
+      const token = await getAdminToken();
       const res = await request(app)
         .post('/api/services')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           name: 'Test Service',
           description: 'Test',
@@ -107,8 +111,10 @@ describe('input validation middleware', () => {
     });
 
     test('missing price -> returns 400', async () => {
+      const token = await getAdminToken();
       const res = await request(app)
         .post('/api/services')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           name: 'Test Service',
           duration_minutes: 30,
@@ -218,7 +224,7 @@ describe('input validation middleware', () => {
 
   describe('PUT /api/services/:id (update service)', () => {
     test('empty update -> returns 400 (at least one field required)', async () => {
-      const token = await getValidToken();
+      const token = await getAdminToken();
       const res = await request(app)
         .put('/api/services/550e8400-e29b-41d4-a716-446655440000')
         .set('Authorization', `Bearer ${token}`)
