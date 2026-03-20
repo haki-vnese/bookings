@@ -1,3 +1,6 @@
+/**
+ * Company routes — read for admin/superuser, write for superuser only.
+ */
 import express from 'express';
 import catchAsync from '../utils/catchAsync.js';
 import validate from '../middleware/validate.js';
@@ -15,8 +18,8 @@ const router = express.Router();
 
 router.get('/', verifyAuth, authorize('admin', 'superuser'), catchAsync(getAllCompanies));
 router.get('/:id', verifyAuth, authorize('admin', 'superuser'), catchAsync(getCompanyById));
-router.post('/', validate(companySchemas.create), verifyAuth, authorize('superuser'), catchAsync(createCompany));
-router.put('/:id', validate(companySchemas.update), verifyAuth, authorize('superuser'), catchAsync(updateCompany));
+router.post('/', verifyAuth, authorize('superuser'), validate(companySchemas.create), catchAsync(createCompany));
+router.put('/:id', verifyAuth, authorize('superuser'), validate(companySchemas.update), catchAsync(updateCompany));
 router.delete('/:id', verifyAuth, authorize('superuser'), catchAsync(deleteCompany));
 
 export default router;

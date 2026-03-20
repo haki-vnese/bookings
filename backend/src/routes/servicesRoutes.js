@@ -1,3 +1,8 @@
+/**
+ * Service routes.
+ *
+ * GET endpoints are public (no auth).  Write endpoints require admin/superuser.
+ */
 import express from 'express';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
@@ -28,8 +33,8 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 router.get('/:id', catchAsync(getServiceById));
-router.post('/', validate(serviceSchemas.create), verifyAuth, authorize('admin', 'superuser'), catchAsync(createService));
-router.put('/:id', validate(serviceSchemas.update), verifyAuth, authorize('admin', 'superuser'), catchAsync(updateService));
+router.post('/', verifyAuth, authorize('admin', 'superuser'), validate(serviceSchemas.create), catchAsync(createService));
+router.put('/:id', verifyAuth, authorize('admin', 'superuser'), validate(serviceSchemas.update), catchAsync(updateService));
 router.delete('/:id', verifyAuth, authorize('admin', 'superuser'), catchAsync(deleteService));
 
 export default router;

@@ -1,3 +1,9 @@
+/**
+ * Booking routes.
+ *
+ * All routes require authentication.  GET / is restricted to admin/superuser;
+ * technician and customer sub-routes enforce ownership in the controller.
+ */
 import express from 'express';
 import catchAsync from '../utils/catchAsync.js';
 import validate from '../middleware/validate.js';
@@ -20,8 +26,8 @@ router.get('/', verifyAuth, authorize('admin', 'superuser'), catchAsync(getAllBo
 router.get('/technician/:technicianId', verifyAuth, catchAsync(getBookingByTechnician));
 router.get('/customer/:customerId', verifyAuth, catchAsync(getBookingByCustomer));
 router.get('/:id', verifyAuth, catchAsync(getBookingById));
-router.post('/', validate(bookingSchemas.create), verifyAuth, catchAsync(createBooking));
-router.put('/:id', validate(bookingSchemas.update), verifyAuth, catchAsync(updateBooking));
+router.post('/', verifyAuth, validate(bookingSchemas.create), catchAsync(createBooking));
+router.put('/:id', verifyAuth, validate(bookingSchemas.update), catchAsync(updateBooking));
 router.delete('/:id', verifyAuth, catchAsync(deleteBooking));
 
 export default router;

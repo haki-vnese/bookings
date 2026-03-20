@@ -1,3 +1,6 @@
+/**
+ * Customer routes — admin/superuser CRUD for customer records.
+ */
 import express from 'express';
 import catchAsync from '../utils/catchAsync.js';
 import validate from '../middleware/validate.js';
@@ -15,8 +18,8 @@ const router = express.Router();
 
 router.get('/', verifyAuth, authorize('admin', 'superuser'), catchAsync(getAllCustomers));
 router.get('/:id', verifyAuth, authorize('admin', 'superuser'), catchAsync(getCustomerById));
-router.post('/', validate(customerSchemas.create), verifyAuth, authorize('admin', 'superuser'), catchAsync(createCustomer));
-router.put('/:id', validate(customerSchemas.update), verifyAuth, authorize('admin', 'superuser'), catchAsync(updateCustomer));
+router.post('/', verifyAuth, authorize('admin', 'superuser'), validate(customerSchemas.create), catchAsync(createCustomer));
+router.put('/:id', verifyAuth, authorize('admin', 'superuser'), validate(customerSchemas.update), catchAsync(updateCustomer));
 router.delete('/:id', verifyAuth, authorize('admin', 'superuser'), catchAsync(deleteCustomer));
 
 export default router;
