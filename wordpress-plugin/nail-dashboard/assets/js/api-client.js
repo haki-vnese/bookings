@@ -1,5 +1,6 @@
 export class NDClient {
   constructor(config) {
+    // Base URL is normalized once to avoid trailing-slash route issues.
     this.apiBaseUrl = (config.apiBaseUrl || '').replace(/\/$/, '');
     this.storageApiBaseKey = 'nd_api_base_url';
     this.syncSessionWithApiBase();
@@ -48,6 +49,8 @@ export class NDClient {
   }
 
   async request(path, options = {}) {
+    // Every API request goes through this wrapper so auth headers and
+    // error object shape remain consistent across features.
     const token = this.token;
     const headers = {
       'Content-Type': 'application/json',
@@ -108,10 +111,12 @@ export class NDClient {
   }
 
   async getBookings() {
+    // Admin/superuser path.
     return this.request('/bookings', { method: 'GET' });
   }
 
   async getBookingsByTechnician(technicianId) {
+    // Staff path. This endpoint is role-safe and tenant-safe server-side.
     return this.request(`/bookings/technician/${technicianId}`, { method: 'GET' });
   }
 

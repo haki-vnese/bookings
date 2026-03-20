@@ -40,12 +40,15 @@ const helpers = {
 };
 
 function isAdminScopeError(error) {
+  // Scope errors are user-actionable and should be surfaced directly.
   const status = Number(error?.status || 0);
   const message = String(error?.message || '').toLowerCase();
   return status === 403 && message.includes('missing scope');
 }
 
 async function requestOrFallback(requestPromise, fallbackValue, options = {}) {
+  // Centralized request guard used to avoid repetitive try/catch blocks
+  // during dashboard hydration.
   const { throwOnAdminScopeError = false } = options;
   try {
     return await requestPromise;
@@ -138,6 +141,8 @@ async function refreshData() {
   const canReadManageData = canManage(role);
   const isStaffOnly = role === 'staff';
 
+  // Non-manage roles can still have a staff profile. We use this to choose
+  // the technician-scoped bookings route and avoid forbidden admin routes.
   const shouldFetchMyStaff = isStaffOnly || !canReadManageData;
   const myStaff = shouldFetchMyStaff
     ? await requestOrFallback(client.getMyStaff(), null, { throwOnAdminScopeError: false })
@@ -148,6 +153,9 @@ async function refreshData() {
     ? String(myStaff?.user_id || myStaff?.staff_id || state.user?.id || state.user?.userId || '').trim()
     : '';
 
+  // Route selection:
+  // - staff/technician flow => /bookings/technician/:id
+  // - manage roles => /bookings
   const bookingsPromise = shouldUseTechnicianRoute
     ? (technicianId
       ? requestOrFallback(client.getBookingsByTechnician(technicianId), [], { throwOnAdminScopeError: false })
@@ -165,6 +173,7 @@ async function refreshData() {
   let salons;
 
   try {
+    // Fetch in parallel to keep dashboard startup latency low.
     [bookings, customers, users, staff, services, companies, salons] = await Promise.all([
       bookingsPromise,
       canReadManageData
@@ -186,6 +195,7 @@ async function refreshData() {
     ]);
   } catch (error) {
     if (isAdminScopeError(error)) {
+      // Show a precise remediation message instead of empty panels.
       state.error = 'Admin account is missing scope. Ask a superuser to set your company or salon scope.';
       return;
     }

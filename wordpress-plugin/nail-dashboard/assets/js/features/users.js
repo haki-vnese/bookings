@@ -1,4 +1,6 @@
 function filterUsers(rows, filters) {
+  // Local client-side filtering keeps the UI responsive while preserving
+  // server-side scope guarantees.
   const q = String(filters?.q || '').trim().toLowerCase();
   const role = String(filters?.role || '').trim();
   const salon = String(filters?.salon || '').trim();
@@ -16,6 +18,7 @@ function filterUsers(rows, filters) {
 }
 
 function getSalonLabel(row, salonsById) {
+  // Prefer enriched payload field, then lookup map, then raw ID fallback.
   if (row.salon_name) return row.salon_name;
   if (!row.salon_id) return 'global';
   return salonsById.get(row.salon_id) || row.salon_id;
@@ -109,6 +112,7 @@ export function renderUsersPanel(state, helpers) {
   const canCreate = canManage(role);
 
   if (role === 'staff') {
+    // Staff sees a self-service profile panel, not the global user table.
     return renderStaffSelfPanel(state, helpers);
   }
 
@@ -190,6 +194,7 @@ export function bindUsersEvents(ctx) {
   const role = String(state.user?.role || '').toLowerCase();
 
   if (role === 'staff') {
+    // Staff update path intentionally reuses users/me endpoint only.
     const selfForm = document.getElementById('nd-user-self-form');
     if (selfForm) {
       selfForm.addEventListener('submit', async (event) => {

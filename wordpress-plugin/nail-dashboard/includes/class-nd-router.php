@@ -1,5 +1,4 @@
 <?php
-
 if (!defined('ABSPATH')) {
     exit;
 }
@@ -52,18 +51,23 @@ class ND_Router {
             return;
         }
 
+        $stylePath = ND_PLUGIN_DIR . 'assets/css/dashboard.css';
+        $appPath = ND_PLUGIN_DIR . 'assets/js/app.js';
+        $styleVersion = file_exists($stylePath) ? (string) filemtime($stylePath) : ND_PLUGIN_VERSION;
+        $appVersion = file_exists($appPath) ? (string) filemtime($appPath) : ND_PLUGIN_VERSION;
+
         wp_enqueue_style(
             'nd-dashboard-style',
             ND_PLUGIN_URL . 'assets/css/dashboard.css',
             [],
-            ND_PLUGIN_VERSION
+            $styleVersion
         );
 
         wp_enqueue_script(
             'nd-dashboard-app',
             ND_PLUGIN_URL . 'assets/js/app.js',
             [],
-            ND_PLUGIN_VERSION,
+            $appVersion,
             true
         );
 
