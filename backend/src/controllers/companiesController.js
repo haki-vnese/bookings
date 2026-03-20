@@ -1,15 +1,14 @@
+/**
+ * Companies controller — CRUD for company entities.
+ *
+ * Only superusers can create, update, or delete companies.
+ * Admins can view companies scoped to their own `company_id`.
+ */
 import { supabase } from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
+import { isSuperuser, isAdmin } from '../utils/roles.js';
 
 const COMPANY_SELECT_FIELDS = 'id, name, address_id, created_at, created_by, updated_at, updated_by';
-
-function isAdmin(req) {
-  return req.user?.role === 'admin';
-}
-
-function isSuperuser(req) {
-  return req.user?.role === 'superuser';
-}
 
 function applyCompanyScope(query, req) {
   if (isSuperuser(req)) return query;

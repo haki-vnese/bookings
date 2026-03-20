@@ -1,3 +1,14 @@
+/**
+ * Availability controller — computes open time slots for a technician.
+ *
+ * Given a date and service, this endpoint:
+ *   1. Fetches the service's duration.
+ *   2. Queries existing bookings for the technician on that date (DB-filtered).
+ *   3. Walks the working-hours window (09:00–18:00 UTC) and emits every
+ *      slot that doesn't overlap an existing booking.
+ *
+ * The result is an array of `{ start, end }` objects in `HH:mm` format.
+ */
 import { supabase } from '../db/supabase.js';
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js';
@@ -28,23 +39,21 @@ export const getAvailability = async (req, res) => {
     const dayStart = dayjs.utc(`${date}T09:00:00Z`);
     const dayEnd = dayjs.utc(`${date}T18:00:00Z`);
 
-    // Fetch existing bookings for the technician on the specified date
-    // Query bookings that overlap with the day
+    // Fetch existing bookings for the technician that overlap with the day.
+    // Filtering by date range at the DB level avoids loading the entire
+    // booking history into memory.
     const { data: bookings, error: bookingsError } = await supabase
         .from('bookings')
-        .select('*')
-        .eq('technician_id', technicianId);
+        .select('start_time, end_time')
+        .eq('technician_id', technicianId)
+        .lt('start_time', dayEnd.toISOString())
+        .gt('end_time', dayStart.toISOString())
+        .order('start_time', { ascending: true });
 
     if (bookingsError) throw new ApiError(500, 'Error fetching bookings');
 
-    const filteredBookings = (bookings || []).filter((booking) => {
-        const bookedStart = dayjs.utc(booking.start_time);
-        const bookedEnd = dayjs.utc(booking.end_time);
-        return bookedStart.isBefore(dayEnd) && bookedEnd.isAfter(dayStart);
-    });
-
-    // Sort bookings by start time (handle null/empty case)
-    const sortedBookings = filteredBookings.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+    // Bookings are already filtered and sorted by the database query.
+    const sortedBookings = bookings || [];
 
     // Generate available time slots
     const availableSlots = [];

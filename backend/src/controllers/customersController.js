@@ -1,44 +1,26 @@
+/**
+ * Customers controller — CRUD with tenant-scoped visibility.
+ *
+ * Admins see customers within their company/salon; superusers see all.
+ * New customers must always be assigned to a salon.  The `withSalonName`
+ * enrichment helper annotates response rows with the human-readable
+ * salon name for display purposes.
+ */
 import { supabase } from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
+import { isSuperuser, isAdmin, ensureAdminScope } from '../utils/roles.js';
+import { withSalonName } from '../utils/enrichment.js';
 
 const CUSTOMER_SELECT_FIELDS = 'id, name, email, phone, company_id, salon_id, created_at, updated_at, created_by, updated_by';
 
-const isSuperuser = (req) => req.user?.role === 'superuser';
-const isAdmin = (req) => req.user?.role === 'admin';
-
-function ensureAdminCompany(req) {
-  if (isAdmin(req) && !req.user?.company_id && !req.user?.salon_id) {
-    throw new ApiError(403, 'Admin account is missing scope', { expose: true });
-  }
-}
-
 function applyCustomerScope(query, req) {
   if (isSuperuser(req)) return query;
-  ensureAdminCompany(req);
+  ensureAdminScope(req);
   if (isAdmin(req)) {
     if (req.user.company_id) return query.eq('company_id', req.user.company_id);
     return query.eq('salon_id', req.user.salon_id);
   }
   return query;
-}
-
-async function withSalonName(customers) {
-  const rows = Array.isArray(customers) ? customers : [];
-  const salonIds = [...new Set(rows.map((row) => row.salon_id).filter(Boolean))];
-  if (salonIds.length === 0) return rows;
-
-  const { data: salons, error } = await supabase
-    .from('salons')
-    .select('id, name')
-    .in('id', salonIds);
-
-  if (error) return rows;
-
-  const salonMap = new Map((salons || []).map((salon) => [salon.id, salon.name]));
-  return rows.map((row) => ({
-    ...row,
-    salon_name: row.salon_id ? salonMap.get(row.salon_id) || null : null,
-  }));
 }
 
 export const getAllCustomers = async (req, res) => {
@@ -84,7 +66,7 @@ export const createCustomer = async (req, res) => {
     payload.salon_id = salon_id;
     payload.company_id = req.body.company_id || null;
   } else {
-    ensureAdminCompany(req);
+    ensureAdminScope(req);
     if (!salon_id) {
       throw new ApiError(400, 'salon_id is required for admin customer creation', { expose: true });
     }

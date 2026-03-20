@@ -1,30 +1,25 @@
+/**
+ * Staff controller — CRUD for staff profiles in the `staff` table.
+ *
+ * Staff rows are the scheduling/technician entity.  Each staff member
+ * belongs to exactly one salon (and transitively one company).  Admins
+ * are scoped to their own company/salon; superusers have full access.
+ *
+ * The `ensureSalonBelongsToCompany` check prevents assigning a staff
+ * member to a salon in a different company.
+ */
 import { supabase } from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
+import { isSuperuser, isAdmin, isStaff, ensureAdminScope } from '../utils/roles.js';
+import { ensureSalonBelongsToCompany } from '../utils/tenantScope.js';
+import { withSalonName } from '../utils/enrichment.js';
 
 const STAFF_SELECT_FIELDS = 'staff_id, user_id, name, phone, email, address_id, company_id, salon_id, created_at, created_by, updated_at, updated_by';
-
-function isSuperuser(req) {
-  return req.user?.role === 'superuser';
-}
-
-function isAdmin(req) {
-  return req.user?.role === 'admin';
-}
-
-function isStaff(req) {
-  return req.user?.role === 'staff';
-}
-
-function ensureAdminCompany(req) {
-  if (isAdmin(req) && !req.user?.company_id && !req.user?.salon_id) {
-    throw new ApiError(403, 'Admin account is missing scope', { expose: true });
-  }
-}
 
 function applyStaffScope(query, req) {
   if (isSuperuser(req)) return query;
   if (isAdmin(req)) {
-    ensureAdminCompany(req);
+    ensureAdminScope(req);
     let scoped = query;
     if (req.user.company_id) scoped = scoped.eq('company_id', req.user.company_id);
     if (req.user.salon_id) scoped = scoped.eq('salon_id', req.user.salon_id);
@@ -34,34 +29,6 @@ function applyStaffScope(query, req) {
     return query.eq('user_id', req.user.userId);
   }
   return query;
-}
-
-async function ensureSalonBelongsToCompany(salonId, companyId) {
-  const { data, error } = await supabase
-    .from('salons')
-    .select('id')
-    .eq('id', salonId)
-    .eq('company_id', companyId)
-    .maybeSingle();
-
-  if (error) throw new ApiError(500, error.message);
-  if (!data) throw new ApiError(400, 'salon_id does not belong to company_id', { expose: true });
-}
-
-async function withSalonName(staffRows) {
-  const rows = Array.isArray(staffRows) ? staffRows : [];
-  const salonIds = [...new Set(rows.map((row) => row.salon_id).filter(Boolean))];
-  if (salonIds.length === 0) return rows;
-
-  const { data: salons, error } = await supabase
-    .from('salons')
-    .select('id, name')
-    .in('id', salonIds);
-
-  if (error) return rows;
-
-  const salonMap = new Map((salons || []).map((salon) => [salon.id, salon.name]));
-  return rows.map((row) => ({ ...row, salon_name: row.salon_id ? salonMap.get(row.salon_id) || null : null }));
 }
 
 export const getAllStaff = async (req, res) => {
@@ -102,7 +69,7 @@ export const createStaff = async (req, res) => {
   };
 
   if (isAdmin(req)) {
-    ensureAdminCompany(req);
+    ensureAdminScope(req);
     payload.company_id = req.user.company_id;
   }
 
@@ -130,7 +97,7 @@ export const updateStaff = async (req, res) => {
   };
 
   if (isAdmin(req)) {
-    ensureAdminCompany(req);
+    ensureAdminScope(req);
     updates.company_id = req.user.company_id;
   }
 

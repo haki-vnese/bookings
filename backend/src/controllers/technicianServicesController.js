@@ -1,3 +1,9 @@
+/**
+ * Technician-services controller — manages which services a technician offers.
+ *
+ * Each row links a technician to a service and optionally overrides the
+ * default price.  Like services, these rows are currently global.
+ */
 import { supabase } from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
 

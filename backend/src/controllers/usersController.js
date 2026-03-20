@@ -1,27 +1,27 @@
+/**
+ * Users controller — CRUD for admin/staff/superuser accounts.
+ *
+ * Key behaviours:
+ *   • Excludes customers from all queries (customers have their own endpoints).
+ *   • Admin-created users are automatically pinned to the admin's tenant scope.
+ *   • When a user's role is "staff", a matching row in the `staff` table is
+ *     created/updated via atomic upsert (requires UNIQUE on staff.user_id).
+ *   • Visibility is tenant-scoped: admins see users within their company (or
+ *     salon), superusers see all.
+ */
 import { supabase } from "../db/supabase.js";
 import ApiError from '../utils/ApiError.js';
 import bcrypt from 'bcryptjs';
+import { isSuperuser, isAdmin, ensureAdminScope } from '../utils/roles.js';
+import { resolveCompanyIdFromSalon } from '../utils/tenantScope.js';
+import { withSalonName } from '../utils/enrichment.js';
 
+// Consistent projection for all user queries — never exposes the password column.
 const USER_SELECT_FIELDS = 'id, name, email, username, role, role_id, company_id, salon_id, created_at, updated_at, created_by, updated_by';
 
-const isSuperuser = (req) => req.user?.role === 'superuser';
-const isAdmin = (req) => req.user?.role === 'admin';
-
-async function resolveCompanyIdFromSalon(salonId) {
-    if (!salonId) return null;
-
-    const { data, error } = await supabase
-        .from('salons')
-        .select('company_id')
-        .eq('id', salonId)
-        .maybeSingle();
-
-    if (error) throw new ApiError(500, error.message);
-    if (!data) throw new ApiError(400, 'Invalid salon_id', { expose: true });
-    return data.company_id || null;
-}
-
 async function syncStaffProfileForUser(user, actorId) {
+    // Staff users are mirrored into the staff table so scheduling and
+    // technician-facing queries can rely on a dedicated staff entity.
     if (String(user?.role || '').toLowerCase() !== 'staff') {
         return;
     }
@@ -35,36 +35,24 @@ async function syncStaffProfileForUser(user, actorId) {
         throw new ApiError(400, 'Staff user requires company scope', { expose: true });
     }
 
-    const { data: existing, error: existingError } = await supabase
-        .from('staff')
-        .select('staff_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-    if (existingError) throw new ApiError(500, existingError.message);
-
+    // Atomic upsert eliminates the read-then-write race condition that
+    // occurred when two concurrent requests both tried to create the same
+    // staff profile.  Requires a UNIQUE constraint on staff.user_id.
     const payload = {
         user_id: user.id,
         name: user.name,
         email: user.email || null,
         company_id: derivedCompanyId,
         salon_id: user.salon_id,
+        created_by: actorId || null,
         updated_by: actorId || null,
     };
 
-    if (existing?.staff_id) {
-        const { error: updateError } = await supabase
-            .from('staff')
-            .update(payload)
-            .eq('staff_id', existing.staff_id);
-        if (updateError) throw new ApiError(500, updateError.message);
-        return;
-    }
-
-    const { error: insertError } = await supabase
+    const { error: upsertError } = await supabase
         .from('staff')
-        .insert([{ ...payload, created_by: actorId || null }]);
-    if (insertError) throw new ApiError(500, insertError.message);
+        .upsert(payload, { onConflict: 'user_id' });
+
+    if (upsertError) throw new ApiError(500, upsertError.message);
 }
 
 async function removeStaffProfileForUser(userId) {
@@ -73,37 +61,17 @@ async function removeStaffProfileForUser(userId) {
     if (error) throw new ApiError(500, error.message);
 }
 
-function ensureAdminCompany(req) {
-    if (isAdmin(req) && !req.user?.company_id && !req.user?.salon_id) {
-        throw new ApiError(403, 'Admin account is missing scope', { expose: true });
-    }
-}
-
 function applyUserVisibilityScope(query, req) {
-    // Superusers can see all users. Admins are restricted to their own company.
+    // Superusers can see all users. Admins are tenant-scoped.
+    // When company scope is present, it takes precedence; otherwise we fall
+    // back to salon-level scope.
     if (isSuperuser(req)) return query;
     if (isAdmin(req)) {
-        ensureAdminCompany(req);
+        ensureAdminScope(req);
         if (req.user?.company_id) return query.eq('company_id', req.user.company_id);
         return query.eq('salon_id', req.user.salon_id);
     }
     return query;
-}
-
-async function withSalonName(userRows) {
-    const rows = Array.isArray(userRows) ? userRows : [];
-    const salonIds = [...new Set(rows.map((row) => row.salon_id).filter(Boolean))];
-    if (salonIds.length === 0) return rows;
-
-    const { data: salons, error } = await supabase
-        .from('salons')
-        .select('id, name')
-        .in('id', salonIds);
-
-    if (error) return rows;
-
-    const salonMap = new Map((salons || []).map((salon) => [salon.id, salon.name]));
-    return rows.map((row) => ({ ...row, salon_name: row.salon_id ? salonMap.get(row.salon_id) || null : null }));
 }
 
 export const getAllUsers = async (req, res) => {
@@ -165,7 +133,8 @@ export const createUser = async (req, res) => {
         payload.company_id = company_id || null;
         payload.salon_id = salon_id || null;
     } else if (isAdmin(req)) {
-        ensureAdminCompany(req);
+        // Admin-created users are always pinned to admin tenant scope.
+        ensureAdminScope(req);
         payload.company_id = req.user?.company_id || null;
         payload.salon_id = req.user?.salon_id || null;
     }
@@ -233,6 +202,7 @@ export const updateUser = async (req, res) => {
     if (!data || data.length === 0) throw new ApiError(404, 'User not found', { expose: true });
 
     const updatedUser = data[0];
+    // Keep users and staff tables synchronized when role changes.
     if (String(updatedUser?.role || '').toLowerCase() === 'staff') {
         await syncStaffProfileForUser(updatedUser, req.user?.userId);
     } else {

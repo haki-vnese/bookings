@@ -1,3 +1,9 @@
+/**
+ * Services controller — CRUD for the shared service catalogue.
+ *
+ * Services are currently global (not tenant-scoped).  All authenticated
+ * users can read; only admin/superuser can write.
+ */
 import { supabase } from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
 

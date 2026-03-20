@@ -1,15 +1,14 @@
+/**
+ * Salons controller — read-only list of salons visible to the user.
+ *
+ * Admins see salons belonging to their company; superusers see all.
+ * Write operations for salons would typically be added here if needed.
+ */
 import { supabase } from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
+import { isSuperuser, isAdmin } from '../utils/roles.js';
 
 const SALON_SELECT_FIELDS = 'id, name, company_id, address_id, created_at, updated_at';
-
-function isSuperuser(req) {
-  return req.user?.role === 'superuser';
-}
-
-function isAdmin(req) {
-  return req.user?.role === 'admin';
-}
 
 function applySalonScope(query, req) {
   if (isSuperuser(req)) return query;
