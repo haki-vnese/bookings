@@ -16,6 +16,30 @@ import ApiError from '../utils/ApiError.js';
 
 dayjs.extend(utc);
 
+/**
+ * GET /api/availability/:technicianId?date=YYYY-MM-DD&serviceId=UUID
+ *
+ * Computes open time slots for a given technician on the requested date.
+ *
+ * Algorithm:
+ *   1. Fetch the service's `duration_minutes` from the `services` table.
+ *   2. Query existing bookings for the technician that overlap with the
+ *      requested date (09:00–18:00 UTC window), filtered at the DB level.
+ *   3. Walk the working-hours window in `duration`-minute steps, emitting
+ *      every slot whose span does not overlap an existing booking.
+ *
+ * @param {string} req.params.technicianId  — UUID of the technician
+ * @param {string} req.query.date           — date in YYYY-MM-DD format
+ * @param {string} req.query.serviceId      — UUID of the service
+ * @returns {{ availableSlots: Array<{ start: string, end: string }> }}
+ *
+ * @example
+ * // Request
+ * GET /api/availability/abc-123?date=2026-03-20&serviceId=def-456
+ *
+ * // Response 200
+ * { "availableSlots": [{ "start": "09:00", "end": "09:30" }, ...] }
+ */
 export const getAvailability = async (req, res) => {
     const { technicianId } = req.params;
     const { date, serviceId } = req.query; // Expecting date in 'YYYY-MM-DD' format

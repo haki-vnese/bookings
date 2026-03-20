@@ -10,6 +10,17 @@ import { isSuperuser, isAdmin } from '../utils/roles.js';
 
 const COMPANY_SELECT_FIELDS = 'id, name, address_id, created_at, created_by, updated_at, updated_by';
 
+/**
+ * Narrows a Supabase query to the companies visible to the current user.
+ *
+ * - Superuser  → no filter (sees all companies).
+ * - Admin      → restricted to their own `company_id`.
+ * - Other      → query returned unmodified.
+ *
+ * @param {object} query  — Supabase query builder
+ * @param {object} req    — Express request with `req.user`
+ * @returns {object}        The (possibly narrowed) Supabase query
+ */
 function applyCompanyScope(query, req) {
   if (isSuperuser(req)) return query;
   if (isAdmin(req) && req.user?.company_id) {
@@ -18,6 +29,16 @@ function applyCompanyScope(query, req) {
   return query;
 }
 
+/**
+ * GET /api/companies
+ *
+ * Returns all companies visible to the authenticated user.
+ * Superusers see all; admins see only their own company.
+ *
+ * @example
+ * // Response 200
+ * [{ "id": "...", "name": "Fancy Nails Inc.", "address_id": "..." }]
+ */
 export const getAllCompanies = async (req, res) => {
   let query = supabase.from('companies').select(COMPANY_SELECT_FIELDS);
   query = applyCompanyScope(query, req);
@@ -27,6 +48,12 @@ export const getAllCompanies = async (req, res) => {
   res.json(data || []);
 };
 
+/**
+ * GET /api/companies/:id
+ *
+ * Returns a single company by UUID.  Scope-checked — admins can only
+ * fetch their own company.
+ */
 export const getCompanyById = async (req, res) => {
   const { id } = req.params;
   let query = supabase.from('companies').select(COMPANY_SELECT_FIELDS).eq('id', id).maybeSingle();
@@ -38,6 +65,14 @@ export const getCompanyById = async (req, res) => {
   res.json(data);
 };
 
+/**
+ * POST /api/companies
+ *
+ * Creates a new company.  Superuser-only (enforced at route level).
+ *
+ * @param {string} req.body.name          — company name
+ * @param {string} [req.body.address_id]  — optional address UUID
+ */
 export const createCompany = async (req, res) => {
   const { name, address_id } = req.body;
 
@@ -53,6 +88,12 @@ export const createCompany = async (req, res) => {
   res.status(201).json(data || []);
 };
 
+/**
+ * PUT /api/companies/:id
+ *
+ * Partially updates a company.  Only provided fields are overwritten.
+ * Scope-checked for admins; superuser-only for writes (route level).
+ */
 export const updateCompany = async (req, res) => {
   const { id } = req.params;
   const { name, address_id } = req.body;
@@ -72,6 +113,11 @@ export const updateCompany = async (req, res) => {
   res.json(data);
 };
 
+/**
+ * DELETE /api/companies/:id
+ *
+ * Removes a company.  Superuser-only.  Returns 204 on success.
+ */
 export const deleteCompany = async (req, res) => {
   const { id } = req.params;
   let query = supabase.from('companies').delete().eq('id', id);

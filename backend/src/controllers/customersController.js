@@ -13,6 +13,19 @@ import { withSalonName } from '../utils/enrichment.js';
 
 const CUSTOMER_SELECT_FIELDS = 'id, name, email, phone, company_id, salon_id, created_at, updated_at, created_by, updated_by';
 
+/**
+ * Narrows a Supabase query to the customers visible to the current user.
+ *
+ * - Superuser  → no filter (sees all customers across all tenants).
+ * - Admin      → scoped to their company; falls back to salon if no
+ *                company is set.  Throws 403 if neither is present.
+ * - Other      → query returned unmodified (route-level auth should
+ *                prevent non-admin/non-superuser access).
+ *
+ * @param {object} query  — Supabase query builder
+ * @param {object} req    — Express request with `req.user`
+ * @returns {object}        The (possibly narrowed) Supabase query
+ */
 function applyCustomerScope(query, req) {
   if (isSuperuser(req)) return query;
   ensureAdminScope(req);
@@ -23,6 +36,16 @@ function applyCustomerScope(query, req) {
   return query;
 }
 
+/**
+ * GET /api/customers
+ *
+ * Returns all customers visible to the authenticated user, enriched
+ * with `salon_name` for display.
+ *
+ * @example
+ * // Response 200
+ * [{ "id": "...", "name": "Jane Doe", "salon_id": "...", "salon_name": "Downtown Nails" }]
+ */
 export const getAllCustomers = async (req, res) => {
   let query = supabase.from('customers').select(CUSTOMER_SELECT_FIELDS);
   query = applyCustomerScope(query, req);
@@ -33,6 +56,12 @@ export const getAllCustomers = async (req, res) => {
   res.json(await withSalonName(data));
 };
 
+/**
+ * GET /api/customers/:id
+ *
+ * Returns a single customer by UUID, scope-checked and enriched
+ * with `salon_name`.  Returns 404 if not found or out of scope.
+ */
 export const getCustomerById = async (req, res) => {
   const { id } = req.params;
 
@@ -47,6 +76,21 @@ export const getCustomerById = async (req, res) => {
   res.json(rows[0]);
 };
 
+/**
+ * POST /api/customers
+ *
+ * Creates a new customer.  `salon_id` is always required — customers
+ * must be associated with a physical salon.
+ *
+ * - Superuser  → must explicitly provide `salon_id`.
+ * - Admin      → customer is pinned to the admin's company; `salon_id`
+ *                is required to determine which location.
+ *
+ * @param {string} req.body.name      — customer name
+ * @param {string} req.body.email     — customer email
+ * @param {string} [req.body.phone]   — optional phone number
+ * @param {string} req.body.salon_id  — UUID of the salon
+ */
 export const createCustomer = async (req, res) => {
   const { name, email, phone, salon_id } = req.body;
 
@@ -80,6 +124,13 @@ export const createCustomer = async (req, res) => {
   res.status(201).json(await withSalonName(data));
 };
 
+/**
+ * PUT /api/customers/:id
+ *
+ * Partially updates a customer.  Only provided fields are overwritten.
+ * Superusers may reassign `salon_id` and `company_id`;  admins cannot
+ * move customers across tenants.
+ */
 export const updateCustomer = async (req, res) => {
   const { id } = req.params;
   const { name, email, phone, salon_id, company_id } = req.body;
@@ -108,6 +159,12 @@ export const updateCustomer = async (req, res) => {
   res.json(await withSalonName(data));
 };
 
+/**
+ * DELETE /api/customers/:id
+ *
+ * Removes a customer record.  Scope-checked — admins can only delete
+ * customers within their own tenant.  Returns 204 on success.
+ */
 export const deleteCustomer = async (req, res) => {
   const { id } = req.params;
 
