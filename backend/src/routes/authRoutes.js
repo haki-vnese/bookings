@@ -1,3 +1,9 @@
+/**
+ * Auth routes.
+ *
+ * Public:    POST /register, POST /login, POST /verify
+ * Protected: GET  /me, POST /logout
+ */
 import express from 'express';
 import catchAsync from '../utils/catchAsync.js';
 import validate from '../middleware/validate.js';

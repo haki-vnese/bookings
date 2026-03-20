@@ -1,7 +1,25 @@
+/**
+ * Auth controller — registration, login, token verification, and logout.
+ *
+ * Registration can optionally require admin authorization for privileged
+ * roles (admin, staff, superuser) when `REQUIRE_ADMIN_TOKEN_FOR_PRIVILEGED_REGISTER`
+ * is set to `"true"`.
+ *
+ * Login supports both email and username look-ups (case-insensitive).
+ * Only bcrypt-hashed passwords are accepted — legacy plain-text rows
+ * must go through an admin-initiated password reset.
+ *
+ * JWT payload shape (consumed by auth middleware):
+ *   { userId, email, role, company_id, salon_id }
+ */
 import { supabase } from "../db/supabase.js";
 import ApiError from '../utils/ApiError.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+
+// ══════════════════════════════════════════════════════════════════════════
+//  Registration
+// ══════════════════════════════════════════════════════════════════════════
 
 /**
  * Register a new user
@@ -141,29 +159,19 @@ export const login = async (req, res) => {
         throw new ApiError(401, 'Invalid email or password', { expose: true });
     }
 
-    // Verify password with compatibility for legacy plain-text rows.
+    // Verify password — only bcrypt hashes are accepted.
+    // Legacy plain-text passwords are no longer auto-migrated; affected
+    // users must go through an admin-initiated password reset.
     let isPasswordValid = false;
     const storedPassword = typeof user.password === 'string' ? user.password : '';
     const isBcryptHash = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(storedPassword);
 
     if (isBcryptHash) {
         isPasswordValid = await bcrypt.compare(password, storedPassword);
-    } else if (storedPassword) {
-        isPasswordValid = password === storedPassword;
-
-        // One-time migration from plain text to bcrypt after successful login.
-        if (isPasswordValid) {
-            const migratedHash = await bcrypt.hash(password, 10);
-            const { error: migrateError } = await supabase
-                .from('users')
-                .update({ password: migratedHash })
-                .eq('id', user.id);
-
-            if (migrateError) {
-                console.error('Password migration failed for user', user.id, migrateError.message);
-            }
-        }
     }
+    // If the stored value is not a bcrypt hash the login attempt always
+    // fails.  This eliminates the timing-attack vector that existed when
+    // plain-text comparison was used as a fallback.
 
     if (!isPasswordValid) {
         throw new ApiError(401, 'Invalid email or password', { expose: true });

@@ -1,3 +1,15 @@
+/**
+ * Joi validation schemas for every writable endpoint.
+ *
+ * Each schema group exports `create` and optionally `update` schemas.
+ * The `validate` middleware (middleware/validate.js) applies a schema
+ * to `req.body` and strips unknown fields via `stripUnknown: true`.
+ *
+ * Defence-in-depth rules embedded here:
+ *   • `authSchemas.register` blocks self-registration as superuser.
+ *   • `bookingSchemas.create` enforces `end_time > start_time`.
+ *   • `userSchemas.create` requires `salon_id` when role is staff.
+ */
 import Joi from 'joi';
 
 // Auth validation schemas
@@ -20,8 +32,8 @@ export const authSchemas = {
       'string.min': 'Password must be at least 6 characters',
       'string.max': 'Password must be less than 128 characters',
     }),
-    role: Joi.string().valid('superuser', 'admin', 'staff', 'customer').required().messages({
-      'any.only': 'Role must be one of "superuser", "admin", "staff", or "customer"',
+    role: Joi.string().valid('admin', 'staff', 'customer').required().messages({
+      'any.only': 'Role must be one of "admin", "staff", or "customer"',
     }),
     company_id: Joi.string().uuid().allow(null).optional(),
     salon_id: Joi.string().uuid().optional(),
