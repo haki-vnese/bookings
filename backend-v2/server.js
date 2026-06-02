@@ -14,7 +14,10 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: ['https://booking.hairtasticheadspa.ca'],
+  origin: [
+    'https://booking.hairtasticheadspa.ca',
+    'http://booking.hairtasticheadspa.ca'
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-salon-id']
 }));
