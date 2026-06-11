@@ -35,6 +35,30 @@ const ADDRESS_FIELDS = `
   updated_at
 `;
 
+function throwCompanyDatabaseError(action, error) {
+  // Map các lỗi Supabase/Postgres hay gặp thành message dễ xử lý ở frontend.
+  // Không trả toàn bộ raw error ra public API để tránh lộ chi tiết database.
+  if (error?.code === '42P01') {
+    throw new ApiError(500, 'Companies or addresses table is missing. Run backend-v2/supabase-companies.sql in Supabase.', {
+      details: error
+    });
+  }
+
+  if (error?.code === '42703') {
+    throw new ApiError(500, 'Companies schema is missing a required column. Re-run backend-v2/supabase-companies.sql.', {
+      details: error
+    });
+  }
+
+  if (error?.code === '42501') {
+    throw new ApiError(500, 'Supabase permissions blocked companies access. Check RLS policies or the backend Supabase key.', {
+      details: error
+    });
+  }
+
+  throw new ApiError(500, `Failed to ${action}`, { details: error });
+}
+
 // Shape response public cho plugin. Có cả `addressId` để làm việc với quan hệ
 // database và `address` để render/edit trực tiếp trong form.
 function toApiCompany(row, address = null) {
@@ -63,6 +87,14 @@ function normalizeCompanyInput(input = {}, { partial = false } = {}) {
   if (input.phone !== undefined) payload.phone = String(input.phone).trim();
   if (input.addressId !== undefined) payload.address_id = input.addressId;
   if (input.address_id !== undefined) payload.address_id = input.address_id;
+
+  if (partial && input.email !== undefined && !payload.email) {
+    throw new ApiError(400, 'Company email cannot be empty', { expose: true });
+  }
+
+  if (partial && input.phone !== undefined && !payload.phone) {
+    throw new ApiError(400, 'Company phone cannot be empty', { expose: true });
+  }
 
   // Company có thể gửi `addressId` trỏ tới address có sẵn hoặc gửi object
   // `address` lồng bên trong. Plugin dùng address lồng; caller API trực tiếp có
@@ -99,7 +131,7 @@ async function loadAddressesById(addressIds) {
     .in('id', uniqueIds);
 
   if (error) {
-    throw new ApiError(500, 'Failed to fetch company addresses', { details: error });
+    throwCompanyDatabaseError('fetch company addresses', error);
   }
 
   return new Map((data || []).map((address) => [address.id, address]));
@@ -118,7 +150,7 @@ async function loadCompanyById(id) {
     if (error.code === 'PGRST116') {
       throw new ApiError(404, 'Company not found', { expose: true });
     }
-    throw new ApiError(500, 'Failed to fetch company', { details: error });
+    throwCompanyDatabaseError('fetch company', error);
   }
 
   const addressesById = await loadAddressesById([data.address_id]);
@@ -134,7 +166,7 @@ export const getAllCompanies = async (req, res) => {
     .order('created_at', { ascending: false });
 
   if (error) {
-    throw new ApiError(500, 'Failed to fetch companies', { details: error });
+    throwCompanyDatabaseError('fetch companies', error);
   }
 
   const rows = data || [];
@@ -165,7 +197,7 @@ export const createCompany = async (req, res) => {
     .single();
 
   if (error) {
-    throw new ApiError(500, 'Failed to create company', { details: error });
+    throwCompanyDatabaseError('create company', error);
   }
 
   const addressesById = await loadAddressesById([data.address_id]);
@@ -206,7 +238,7 @@ export const updateCompany = async (req, res) => {
     if (error.code === 'PGRST116') {
       throw new ApiError(404, 'Company not found', { expose: true });
     }
-    throw new ApiError(500, 'Failed to update company', { details: error });
+    throwCompanyDatabaseError('update company', error);
   }
 
   const addressesById = await loadAddressesById([data.address_id]);
