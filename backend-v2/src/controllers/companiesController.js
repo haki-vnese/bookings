@@ -39,13 +39,13 @@ function throwCompanyDatabaseError(action, error) {
   // Map các lỗi Supabase/Postgres hay gặp thành message dễ xử lý ở frontend.
   // Không trả toàn bộ raw error ra public API để tránh lộ chi tiết database.
   if (error?.code === '42P01') {
-    throw new ApiError(500, 'Companies or addresses table is missing. Run backend-v2/supabase-companies.sql in Supabase.', {
+    throw new ApiError(500, 'Companies or addresses table is missing.', {
       details: error
     });
   }
 
   if (error?.code === '42703') {
-    throw new ApiError(500, 'Companies schema is missing a required column. Re-run backend-v2/supabase-companies.sql.', {
+    throw new ApiError(500, 'Companies schema is missing a required column.', {
       details: error
     });
   }
