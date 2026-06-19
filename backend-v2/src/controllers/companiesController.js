@@ -35,6 +35,10 @@ const ADDRESS_FIELDS = `
   updated_at
 `;
 
+/* 
+Các hàm dưới đây chuẩn hóa lỗi database thành ApiError với message rõ ràng hơn để frontend có thể hiển thị hoặc xử lý.
+Không trả toàn bộ raw error ra public API để tránh lộ chi tiết database, nhưng vẫn log chi tiết ở server để debug.
+*/
 function throwCompanyDatabaseError(action, error) {
   // Map các lỗi Supabase/Postgres hay gặp thành message dễ xử lý ở frontend.
   // Không trả toàn bộ raw error ra public API để tránh lộ chi tiết database.
@@ -56,6 +60,13 @@ function throwCompanyDatabaseError(action, error) {
     });
   }
 
+  if (error?.code === '23505') {
+    throw new ApiError(409, 'Company already exists', { 
+      details: error,
+      expose: true
+    });
+  }
+
   throw new ApiError(500, `Failed to ${action}`, { details: error });
 }
 
@@ -74,6 +85,33 @@ function toApiCompany(row, address = null) {
     createdBy: row.created_by,
     updatedBy: row.updated_by
   };
+}
+
+// Kiểm tra tính duy nhất của email trước khi tạo hoặc update Company. Khi update,
+// có thể bỏ qua chính Company đang update để cho phép giữ nguyên email.
+async function assertCompanyEmailAvailable(email, { excludeCompanyId = null } = {}) {
+  if (!email) return;
+
+  let query = supabase
+    .from('companies')
+    .select('id')
+    .ilike('email', email)
+    .limit(1);
+  
+  if (excludeCompanyId) {  
+    // Khi update, cho phép giữ nguyên email của chính Company đó bằng cách bỏ qua id của nó trong truy vấn.
+    query = query.neq('id', excludeCompanyId); 
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throwCompanyDatabaseError('check company email uniqueness', error);
+  }
+
+  if (data && data.length) {
+    throw new ApiError(409, 'Company email is already in use', { expose: true });
+  }
 }
 
 // Chuyển input request thành payload an toàn cho bảng companies. Tạo mới bắt
@@ -184,6 +222,7 @@ export const getCompanyById = async (req, res) => {
 // 2. `address` tạo address mới trước, rồi lưu id của nó vào Company.
 export const createCompany = async (req, res) => {
   const payload = normalizeCompanyInput(req.body || {});
+  await assertCompanyEmailAvailable(payload.email);
 
   if (!payload.address_id && req.body?.address) {
     const address = await createAddressRecord(req.body.address);
@@ -208,9 +247,15 @@ export const createCompany = async (req, res) => {
 // Field của Company update trên row companies. Field `address` lồng bên trong
 // sẽ update row Address đang liên kết để Company giữ nguyên `address_id`.
 export const updateCompany = async (req, res) => {
+
+  /* existing được load để kiểm tra Company tồn tại trước khi update, đồng thời lấy
+  addressId hiện tại để update nếu cần. Nếu không tồn tại sẽ trả 404; nếu có lỗi database sẽ trả 500.*/
   const existing = await loadCompanyById(req.params.id);
   const payload = normalizeCompanyInput(req.body || {}, { partial: true });
 
+  if (payload.email) {
+    await assertCompanyEmailAvailable(payload.email, { excludeCompanyId: existing.id });
+  }
   // Nếu vì lý do nào đó Company chưa có address liên kết, tạo address mới và
   // gắn vào Company. Company tạo từ plugin bình thường sẽ luôn có addressId.
   if (req.body?.address) {
