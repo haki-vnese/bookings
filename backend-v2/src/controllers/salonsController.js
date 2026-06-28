@@ -31,6 +31,8 @@ const ADDRESS_FIELDS = `
   updated_at
 `;
 
+// Các hàm dưới đây chuẩn hóa lỗi database thành ApiError với message rõ ràng hơn để frontend có thể hiển thị hoặc xử lý.
+// Không trả toàn bộ raw error ra public API để tránh lộ chi tiết database, nhưng vẫn log chi tiết ở server để debug.
 function throwSalonDatabaseError(action, error) {
   if (error?.code === '42P01') {
     throw new ApiError(500, 'Salons or addresses table is missing.', { details: error });
@@ -53,6 +55,7 @@ function throwSalonDatabaseError(action, error) {
   throw new ApiError(500, `Failed to ${action}`, { details: error });
 }
 
+// Chuyển đổi dữ liệu salon từ database sang định dạng API-friendly.
 function toApiSalon(row, address = null) {
   return {
     id: row.id,
@@ -69,6 +72,7 @@ function toApiSalon(row, address = null) {
   };
 }
 
+// Chuẩn hóa dữ liệu input từ frontend thành định dạng database-friendly.
 function normalizeSalonInput(input = {}, { partial = false } = {}) {
   const payload = {};
 
