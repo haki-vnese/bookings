@@ -204,20 +204,20 @@ export const deleteCategory = async (req, res) => {
 
     const { data, error } = await supabase
         .from('categories')
-        .update({ is_active: false })
+        .delete()
         .eq('salon_id', salonId)
         .eq('id', categoryId)
-        .select(FIELDS)
-        .single();
+        .select('id');
 
     if (error) {
-        if (error.code === 'PGRST116') { // No rows found
-            throw new ApiError(404, 'Category not found', { expose: true });
-        }
         throw new ApiError(500, 'Failed to delete category', { details: error });
     }   
 
-    res.json(toApiCategory(data));
+    if (!data || !data.length) {
+        throw new ApiError(404, 'Category not found', { expose: true });
+    }
+
+    res.status(204).send();
 }
 
 export const seedCategoriesIfEmpty = async (req, res) => {
