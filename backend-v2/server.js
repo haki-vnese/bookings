@@ -8,6 +8,8 @@ import addressesRouter from './src/routes/addressesRoutes.js';
 import categoriesRouter from './src/routes/categoriesRoutes.js';
 import companiesRouter from './src/routes/companiesRoutes.js';
 import salonsRouter from './src/routes/salonsRoutes.js';
+import staffRouter from './src/routes/staffRoutes.js';
+import usersRouter from './src/routes/usersRoutes.js';
 import { requireSalonHeader } from './src/middleware/salonContext.js';
 import { notFound, errorHandler } from './src/middleware/errorHandler.js';
 
@@ -33,6 +35,8 @@ app.use(express.json());
 app.use('/api/addresses', addressesRouter);
 app.use('/api/categories', requireSalonHeader, categoriesRouter);
 app.use('/api/companies', companiesRouter);
+app.use('/api/staff', requireSalonHeader, staffRouter);
+app.use('/api/users', usersRouter);
 app.use('/api/', salonsRouter);
 // Error handling middleware
 app.use(notFound);
