@@ -22,7 +22,6 @@ const USER_FIELDS = `
   full_name,
   email,
   phone,
-  role,
   status
 `;
 
@@ -59,7 +58,6 @@ function toApiLinkedUser(row) {
     fullName: row.full_name,
     email: row.email,
     phone: row.phone || '',
-    role: row.role,
     status: row.status
   };
 }
