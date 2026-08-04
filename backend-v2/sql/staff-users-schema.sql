@@ -58,6 +58,8 @@ create table if not exists staff (
   sort_order integer not null default 0,
   is_active boolean not null default true,
   bookable boolean not null default true,
+  deleted_at timestamptz,
+  deleted_by uuid references users(id),
   created_at timestamptz not null default now(),
   created_by uuid references users(id),
   updated_at timestamptz not null default now(),
@@ -72,3 +74,10 @@ create index if not exists staff_user_id_idx
 
 create index if not exists staff_sort_order_idx
   on staff (salon_id, sort_order, display_name);
+
+alter table staff
+  add column if not exists deleted_at timestamptz,
+  add column if not exists deleted_by uuid references users(id);
+
+create index if not exists staff_deleted_at_idx
+  on staff (salon_id, deleted_at);

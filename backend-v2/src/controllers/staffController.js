@@ -13,6 +13,8 @@ const STAFF_FIELDS = `
   sort_order,
   is_active,
   bookable,
+  deleted_at,
+  deleted_by,
   created_at,
   updated_at
 `;
@@ -76,6 +78,8 @@ function toApiStaff(row, user = null) {
     sortOrder: row.sort_order ?? 0,
     isActive: Boolean(row.is_active),
     bookable: Boolean(row.bookable),
+    deletedAt: row.deleted_at || null,
+    deletedBy: row.deleted_by || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -171,15 +175,64 @@ async function loadStaffById(id, salonId) {
   return toApiStaff(data, usersById.get(data.user_id));
 }
 
-export const getAllStaff = async (req, res) => {
-  const salonId = req.salonId;
+async function deleteLinkedUserIfRequested(userId, shouldDeleteUser) {
+  if (!shouldDeleteUser || !userId) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from('users')
+    .delete()
+    .eq('id', userId);
+
+  if (error) {
+    throw new ApiError(409, 'Linked user cannot be deleted while related records exist', { details: error, expose: true });
+  }
+}
+
+async function softDeleteStaff(staff, shouldDeleteUser) {
+  const payload = {
+    deleted_at: new Date().toISOString(),
+    is_active: false,
+    bookable: false
+  };
+
+  if (shouldDeleteUser) {
+    payload.user_id = null;
+  }
 
   const { data, error } = await supabase
+    .from('staff')
+    .update(payload)
+    .eq('salon_id', staff.salonId)
+    .eq('id', staff.id)
+    .select(STAFF_FIELDS)
+    .single();
+
+  if (error) {
+    throwStaffDatabaseError('mark staff member deleted', error);
+  }
+
+  await deleteLinkedUserIfRequested(staff.userId, shouldDeleteUser);
+  return data;
+}
+
+export const getAllStaff = async (req, res) => {
+  const salonId = req.salonId;
+  const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true';
+
+  let query = supabase
     .from('staff')
     .select(STAFF_FIELDS)
     .eq('salon_id', salonId)
     .order('sort_order', { ascending: true })
     .order('display_name', { ascending: true });
+
+  if (!includeDeleted) {
+    query = query.is('deleted_at', null);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throwStaffDatabaseError('fetch staff', error);
@@ -238,6 +291,9 @@ export const updateStaff = async (req, res) => {
 };
 
 export const deleteStaff = async (req, res) => {
+  const shouldDeleteUser = String(req.query.deleteLinkedUser || req.body?.deleteLinkedUser || '').toLowerCase() === 'true';
+  const staff = await loadStaffById(req.params.id, req.salonId);
+
   const { data, error } = await supabase
     .from('staff')
     .delete()
@@ -246,12 +302,23 @@ export const deleteStaff = async (req, res) => {
     .select('id');
 
   if (error) {
-    throw new ApiError(409, 'Staff member cannot be deleted while related records exist', { details: error, expose: true });
+    if (error.code !== '23503') {
+      throwStaffDatabaseError('delete staff member', error);
+    }
+
+    const softDeleted = await softDeleteStaff(staff, shouldDeleteUser);
+    const usersById = await loadUsersById([softDeleted.user_id]);
+    return res.status(200).json({
+      staff: toApiStaff(softDeleted, usersById.get(softDeleted.user_id)),
+      deleted: false,
+      softDeleted: true
+    });
   }
 
   if (!data || !data.length) {
     throw new ApiError(404, 'Staff member not found', { expose: true });
   }
 
-  res.status(204).send();
+  await deleteLinkedUserIfRequested(staff.userId, shouldDeleteUser);
+  res.status(200).json({ deleted: true, softDeleted: false });
 };
