@@ -167,6 +167,10 @@ export const getSalonsByCompanyId = async (req, res) => {
   res.json(rows.map((salon) => toApiSalon(salon, addressesById.get(salon.address_id))));
 };
 
+export const getSalonById = async (req, res) => {
+  res.json(await loadSalonById(req.params.id));
+};
+
 export const createSalon = async (req, res) => {
   const payload = normalizeSalonInput({
     ...(req.body || {}),
