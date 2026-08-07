@@ -38,6 +38,8 @@ const USER_FIELDS = `
   status
 `;
 
+const SALON_USER_ROLES = ['staff', 'salon_admin'];
+
 function throwStaffDatabaseError(action, error) {
   if (error?.code === '42P01') {
     throw new ApiError(500, 'Staff, staff salon assignments, or users table is missing.', { details: error });
@@ -315,6 +317,26 @@ async function updateAssignment(assignment, patch) {
   return data;
 }
 
+async function moveLinkedUserMembership(userId, fromSalonId, toSalonId) {
+  if (!userId || !fromSalonId || !toSalonId || fromSalonId === toSalonId) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from('user_memberships')
+    .update({
+      salon_id: toSalonId,
+      updated_at: new Date().toISOString()
+    })
+    .eq('user_id', userId)
+    .eq('salon_id', fromSalonId)
+    .in('role', SALON_USER_ROLES);
+
+  if (error) {
+    throwStaffDatabaseError('sync linked user salon membership', error);
+  }
+}
+
 async function deleteLinkedUserIfRequested(userId, shouldDeleteUser) {
   if (!shouldDeleteUser || !userId) {
     return;
@@ -459,6 +481,8 @@ export const updateStaff = async (req, res) => {
     if (syncError) {
       throwStaffDatabaseError('sync staff primary salon', syncError);
     }
+
+    await moveLinkedUserMembership(data.user_id, currentAssignment.salon_id, assignmentInput.salon_id);
   } else if (
     assignmentInput.active !== undefined ||
     assignmentInput.from_date !== undefined ||
