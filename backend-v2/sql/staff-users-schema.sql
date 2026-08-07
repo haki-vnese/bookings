@@ -66,6 +66,18 @@ create table if not exists staff (
   updated_by uuid references users(id)
 );
 
+create table if not exists staff_salon_assignments (
+  id uuid primary key default gen_random_uuid(),
+  staff_id uuid not null references staff(id) on delete cascade,
+  salon_id uuid not null references salons(id),
+  active boolean not null default true,
+  from_date date not null default current_date,
+  to_date date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (to_date is null or to_date >= from_date)
+);
+
 create index if not exists staff_salon_id_idx
   on staff (salon_id);
 
@@ -81,3 +93,27 @@ alter table staff
 
 create index if not exists staff_deleted_at_idx
   on staff (salon_id, deleted_at);
+
+create index if not exists staff_salon_assignments_staff_id_idx
+  on staff_salon_assignments (staff_id);
+
+create index if not exists staff_salon_assignments_salon_id_idx
+  on staff_salon_assignments (salon_id);
+
+create index if not exists staff_salon_assignments_active_idx
+  on staff_salon_assignments (salon_id, active, from_date);
+
+create unique index if not exists staff_salon_assignments_one_active_per_staff
+  on staff_salon_assignments (staff_id)
+  where active = true;
+
+insert into staff_salon_assignments (staff_id, salon_id, active, from_date)
+select id, salon_id, is_active, current_date
+from staff
+where salon_id is not null
+  and not exists (
+    select 1
+    from staff_salon_assignments existing_assignment
+    where existing_assignment.staff_id = staff.id
+      and existing_assignment.salon_id = staff.salon_id
+  );

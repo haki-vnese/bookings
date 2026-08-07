@@ -19,6 +19,17 @@ const STAFF_FIELDS = `
   updated_at
 `;
 
+const STAFF_ASSIGNMENT_FIELDS = `
+  id,
+  staff_id,
+  salon_id,
+  active,
+  from_date,
+  to_date,
+  created_at,
+  updated_at
+`;
+
 const USER_FIELDS = `
   id,
   full_name,
@@ -29,7 +40,7 @@ const USER_FIELDS = `
 
 function throwStaffDatabaseError(action, error) {
   if (error?.code === '42P01') {
-    throw new ApiError(500, 'Staff or users table is missing.', { details: error });
+    throw new ApiError(500, 'Staff, staff salon assignments, or users table is missing.', { details: error });
   }
 
   if (error?.code === '42703') {
@@ -47,10 +58,14 @@ function throwStaffDatabaseError(action, error) {
   }
 
   if (error?.code === '23505') {
-    throw new ApiError(409, 'Staff member already exists', { details: error, expose: true });
+    throw new ApiError(409, 'Staff member already has an active salon assignment', { details: error, expose: true });
   }
 
   throw new ApiError(500, `Failed to ${action}`, { details: error });
+}
+
+function todayDateString() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function toApiLinkedUser(row) {
@@ -64,10 +79,14 @@ function toApiLinkedUser(row) {
   };
 }
 
-function toApiStaff(row, user = null) {
+function toApiStaff(row, user = null, assignment = null) {
   return {
     id: row.id,
-    salonId: row.salon_id,
+    salonId: assignment?.salon_id || row.salon_id,
+    assignmentId: assignment?.id || null,
+    assignmentActive: assignment ? Boolean(assignment.active) : Boolean(row.is_active),
+    fromDate: assignment?.from_date || null,
+    toDate: assignment?.to_date || null,
     userId: row.user_id,
     user: toApiLinkedUser(user),
     displayName: row.display_name,
@@ -138,6 +157,25 @@ function normalizeStaffInput(input = {}, salonId, { partial = false } = {}) {
   return payload;
 }
 
+function normalizeAssignmentInput(input = {}, currentSalonId) {
+  const payload = {
+    salon_id: input.salonId || input.salon_id || currentSalonId
+  };
+
+  if (input.assignmentActive !== undefined) payload.active = Boolean(input.assignmentActive);
+  if (input.assignment_active !== undefined) payload.active = Boolean(input.assignment_active);
+  if (input.fromDate !== undefined) payload.from_date = input.fromDate || null;
+  if (input.from_date !== undefined) payload.from_date = input.from_date || null;
+  if (input.toDate !== undefined) payload.to_date = input.toDate || null;
+  if (input.to_date !== undefined) payload.to_date = input.to_date || null;
+
+  if (!payload.salon_id) {
+    throw new ApiError(400, 'Salon ID is required', { expose: true });
+  }
+
+  return payload;
+}
+
 async function loadUsersById(userIds) {
   const uniqueIds = [...new Set(userIds.filter(Boolean))];
   if (!uniqueIds.length) {
@@ -156,11 +194,28 @@ async function loadUsersById(userIds) {
   return new Map((data || []).map((user) => [user.id, user]));
 }
 
-async function loadStaffById(id, salonId) {
+async function loadAssignmentForStaff(staffId, salonId) {
+  const { data, error } = await supabase
+    .from('staff_salon_assignments')
+    .select(STAFF_ASSIGNMENT_FIELDS)
+    .eq('staff_id', staffId)
+    .eq('salon_id', salonId)
+    .order('active', { ascending: false })
+    .order('from_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throwStaffDatabaseError('fetch staff salon assignment', error);
+  }
+
+  return data || null;
+}
+
+async function loadStaffRowById(id) {
   const { data, error } = await supabase
     .from('staff')
     .select(STAFF_FIELDS)
-    .eq('salon_id', salonId)
     .eq('id', id)
     .single();
 
@@ -171,8 +226,93 @@ async function loadStaffById(id, salonId) {
     throwStaffDatabaseError('fetch staff member', error);
   }
 
-  const usersById = await loadUsersById([data.user_id]);
-  return toApiStaff(data, usersById.get(data.user_id));
+  return data;
+}
+
+async function loadStaffById(id, salonId) {
+  const assignment = await loadAssignmentForStaff(id, salonId);
+  if (!assignment) {
+    throw new ApiError(404, 'Staff member not found in this salon', { expose: true });
+  }
+
+  const staff = await loadStaffRowById(id);
+  const usersById = await loadUsersById([staff.user_id]);
+  return toApiStaff(staff, usersById.get(staff.user_id), assignment);
+}
+
+async function closeActiveAssignments(staffId, exceptSalonId = null) {
+  let query = supabase
+    .from('staff_salon_assignments')
+    .update({
+      active: false,
+      to_date: todayDateString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('staff_id', staffId)
+    .eq('active', true);
+
+  if (exceptSalonId) {
+    query = query.neq('salon_id', exceptSalonId);
+  }
+
+  const { error } = await query;
+
+  if (error) {
+    throwStaffDatabaseError('close active staff salon assignments', error);
+  }
+}
+
+async function createAssignment(staffId, assignmentInput) {
+  const payload = {
+    staff_id: staffId,
+    salon_id: assignmentInput.salon_id,
+    active: assignmentInput.active ?? true,
+    from_date: assignmentInput.from_date || todayDateString(),
+    to_date: assignmentInput.to_date || null
+  };
+
+  if (payload.active) {
+    await closeActiveAssignments(staffId, payload.salon_id);
+  }
+
+  const { data, error } = await supabase
+    .from('staff_salon_assignments')
+    .insert([payload])
+    .select(STAFF_ASSIGNMENT_FIELDS)
+    .single();
+
+  if (error) {
+    throwStaffDatabaseError('create staff salon assignment', error);
+  }
+
+  return data;
+}
+
+async function updateAssignment(assignment, patch) {
+  if (patch.active === true) {
+    await closeActiveAssignments(assignment.staff_id, assignment.salon_id);
+  }
+
+  const payload = {
+    updated_at: new Date().toISOString()
+  };
+
+  if (patch.active !== undefined) payload.active = Boolean(patch.active);
+  if (patch.from_date !== undefined) payload.from_date = patch.from_date || null;
+  if (patch.to_date !== undefined) payload.to_date = patch.to_date || null;
+
+  const { data, error } = await supabase
+    .from('staff_salon_assignments')
+    .update(payload)
+    .eq('id', assignment.id)
+    .select(STAFF_ASSIGNMENT_FIELDS)
+    .single();
+
+  if (error) {
+    throwStaffDatabaseError('update staff salon assignment', error);
+  }
+
+  return data;
 }
 
 async function deleteLinkedUserIfRequested(userId, shouldDeleteUser) {
@@ -190,49 +330,46 @@ async function deleteLinkedUserIfRequested(userId, shouldDeleteUser) {
   }
 }
 
-async function softDeleteStaff(staff, shouldDeleteUser) {
-  const payload = {
-    deleted_at: new Date().toISOString(),
-    is_active: false,
-    bookable: false
-  };
-
-  if (shouldDeleteUser) {
-    payload.user_id = null;
-  }
-
-  const { data, error } = await supabase
-    .from('staff')
-    .update(payload)
-    .eq('salon_id', staff.salonId)
-    .eq('id', staff.id)
-    .select(STAFF_FIELDS)
-    .single();
-
-  if (error) {
-    throwStaffDatabaseError('mark staff member deleted', error);
-  }
-
-  await deleteLinkedUserIfRequested(staff.userId, shouldDeleteUser);
-  return data;
-}
-
 export const getAllStaff = async (req, res) => {
   const salonId = req.salonId;
   const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true';
+  const includeInactiveAssignments = String(req.query.includeInactiveAssignments || '').toLowerCase() === 'true';
 
-  let query = supabase
+  let assignmentQuery = supabase
+    .from('staff_salon_assignments')
+    .select(STAFF_ASSIGNMENT_FIELDS)
+    .eq('salon_id', salonId)
+    .order('active', { ascending: false })
+    .order('from_date', { ascending: false });
+
+  if (!includeInactiveAssignments) {
+    assignmentQuery = assignmentQuery.eq('active', true);
+  }
+
+  const { data: assignments, error: assignmentError } = await assignmentQuery;
+
+  if (assignmentError) {
+    throwStaffDatabaseError('fetch staff salon assignments', assignmentError);
+  }
+
+  const assignmentRows = assignments || [];
+  const staffIds = [...new Set(assignmentRows.map((assignment) => assignment.staff_id).filter(Boolean))];
+  if (!staffIds.length) {
+    return res.json([]);
+  }
+
+  let staffQuery = supabase
     .from('staff')
     .select(STAFF_FIELDS)
-    .eq('salon_id', salonId)
+    .in('id', staffIds)
     .order('sort_order', { ascending: true })
     .order('display_name', { ascending: true });
 
   if (!includeDeleted) {
-    query = query.is('deleted_at', null);
+    staffQuery = staffQuery.is('deleted_at', null);
   }
 
-  const { data, error } = await query;
+  const { data, error } = await staffQuery;
 
   if (error) {
     throwStaffDatabaseError('fetch staff', error);
@@ -240,7 +377,9 @@ export const getAllStaff = async (req, res) => {
 
   const rows = data || [];
   const usersById = await loadUsersById(rows.map((staff) => staff.user_id));
-  res.json(rows.map((staff) => toApiStaff(staff, usersById.get(staff.user_id))));
+  const assignmentByStaffId = new Map(assignmentRows.map((assignment) => [assignment.staff_id, assignment]));
+
+  res.json(rows.map((staff) => toApiStaff(staff, usersById.get(staff.user_id), assignmentByStaffId.get(staff.id))));
 };
 
 export const getStaffById = async (req, res) => {
@@ -249,6 +388,8 @@ export const getStaffById = async (req, res) => {
 
 export const createStaff = async (req, res) => {
   const payload = normalizeStaffInput(req.body || {}, req.salonId);
+  const assignmentInput = normalizeAssignmentInput(req.body || {}, req.salonId);
+  payload.salon_id = assignmentInput.salon_id;
 
   const { data, error } = await supabase
     .from('staff')
@@ -260,65 +401,127 @@ export const createStaff = async (req, res) => {
     throwStaffDatabaseError('create staff member', error);
   }
 
+  const assignment = await createAssignment(data.id, assignmentInput);
   const usersById = await loadUsersById([data.user_id]);
-  res.status(201).json(toApiStaff(data, usersById.get(data.user_id)));
+  res.status(201).json(toApiStaff(data, usersById.get(data.user_id), assignment));
 };
 
 export const updateStaff = async (req, res) => {
-  const payload = normalizeStaffInput(req.body || {}, req.salonId, { partial: true });
-
-  if (!Object.keys(payload).length) {
-    return res.json(await loadStaffById(req.params.id, req.salonId));
+  const currentAssignment = await loadAssignmentForStaff(req.params.id, req.salonId);
+  if (!currentAssignment) {
+    throw new ApiError(404, 'Staff member not found in this salon', { expose: true });
   }
 
-  const { data, error } = await supabase
-    .from('staff')
-    .update(payload)
-    .eq('salon_id', req.salonId)
-    .eq('id', req.params.id)
-    .select(STAFF_FIELDS)
-    .single();
+  const assignmentInput = normalizeAssignmentInput(req.body || {}, req.salonId);
+  const shouldMoveSalon = assignmentInput.salon_id && assignmentInput.salon_id !== currentAssignment.salon_id;
+  const payload = normalizeStaffInput(req.body || {}, req.salonId, { partial: true });
 
-  if (error) {
-    if (error.code === 'PGRST116') {
-      throw new ApiError(404, 'Staff member not found', { expose: true });
+  let data = await loadStaffRowById(req.params.id);
+
+  if (Object.keys(payload).length) {
+    const { data: updatedStaff, error } = await supabase
+      .from('staff')
+      .update(payload)
+      .eq('id', req.params.id)
+      .select(STAFF_FIELDS)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        throw new ApiError(404, 'Staff member not found', { expose: true });
+      }
+      throwStaffDatabaseError('update staff member', error);
     }
-    throwStaffDatabaseError('update staff member', error);
+
+    data = updatedStaff;
+  }
+
+  let assignment = currentAssignment;
+
+  if (shouldMoveSalon) {
+    await updateAssignment(currentAssignment, {
+      active: false,
+      to_date: assignmentInput.to_date || todayDateString()
+    });
+
+    assignment = await createAssignment(req.params.id, {
+      salon_id: assignmentInput.salon_id,
+      active: assignmentInput.active ?? true,
+      from_date: assignmentInput.from_date || todayDateString(),
+      to_date: null
+    });
+
+    const { error: syncError } = await supabase
+      .from('staff')
+      .update({ salon_id: assignmentInput.salon_id })
+      .eq('id', req.params.id);
+
+    if (syncError) {
+      throwStaffDatabaseError('sync staff primary salon', syncError);
+    }
+  } else if (
+    assignmentInput.active !== undefined ||
+    assignmentInput.from_date !== undefined ||
+    assignmentInput.to_date !== undefined
+  ) {
+    assignment = await updateAssignment(currentAssignment, assignmentInput);
   }
 
   const usersById = await loadUsersById([data.user_id]);
-  res.json(toApiStaff(data, usersById.get(data.user_id)));
+  res.json(toApiStaff(data, usersById.get(data.user_id), assignment));
 };
 
 export const deleteStaff = async (req, res) => {
   const shouldDeleteUser = String(req.query.deleteLinkedUser || req.body?.deleteLinkedUser || '').toLowerCase() === 'true';
   const staff = await loadStaffById(req.params.id, req.salonId);
+  const currentAssignment = await loadAssignmentForStaff(req.params.id, req.salonId);
 
-  const { data, error } = await supabase
-    .from('staff')
-    .delete()
-    .eq('salon_id', req.salonId)
-    .eq('id', req.params.id)
-    .select('id');
+  const assignment = await updateAssignment(currentAssignment, {
+    active: false,
+    to_date: todayDateString()
+  });
 
-  if (error) {
-    if (error.code !== '23503') {
-      throwStaffDatabaseError('delete staff member', error);
-    }
+  const { data: activeAssignments, error: activeAssignmentsError } = await supabase
+    .from('staff_salon_assignments')
+    .select('id')
+    .eq('staff_id', req.params.id)
+    .eq('active', true)
+    .limit(1);
 
-    const softDeleted = await softDeleteStaff(staff, shouldDeleteUser);
-    const usersById = await loadUsersById([softDeleted.user_id]);
-    return res.status(200).json({
-      staff: toApiStaff(softDeleted, usersById.get(softDeleted.user_id)),
-      deleted: false,
-      softDeleted: true
-    });
+  if (activeAssignmentsError) {
+    throwStaffDatabaseError('check active staff salon assignments', activeAssignmentsError);
   }
 
-  if (!data || !data.length) {
-    throw new ApiError(404, 'Staff member not found', { expose: true });
+  let staffRow = await loadStaffRowById(req.params.id);
+  if (!activeAssignments?.length) {
+    const updatePayload = {
+      is_active: false,
+      bookable: false
+    };
+
+    if (shouldDeleteUser) {
+      updatePayload.user_id = null;
+    }
+
+    const { data: updatedStaff, error: updateStaffError } = await supabase
+      .from('staff')
+      .update(updatePayload)
+      .eq('id', req.params.id)
+      .select(STAFF_FIELDS)
+      .single();
+
+    if (updateStaffError) {
+      throwStaffDatabaseError('deactivate staff member', updateStaffError);
+    }
+
+    staffRow = updatedStaff;
   }
 
   await deleteLinkedUserIfRequested(staff.userId, shouldDeleteUser);
-  res.status(200).json({ deleted: true, softDeleted: false });
+  const usersById = await loadUsersById([staffRow.user_id]);
+  res.status(200).json({
+    staff: toApiStaff(staffRow, usersById.get(staffRow.user_id), assignment),
+    deleted: false,
+    softDeleted: true
+  });
 };
