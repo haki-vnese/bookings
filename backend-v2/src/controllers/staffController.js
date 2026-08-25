@@ -38,6 +38,11 @@ const USER_FIELDS = `
   status
 `;
 
+const SALON_LOOKUP_FIELDS = `
+  id,
+  name
+`;
+
 const SALON_USER_ROLES = ['staff', 'salon_admin'];
 
 function throwStaffDatabaseError(action, error) {
@@ -81,7 +86,18 @@ function toApiLinkedUser(row) {
   };
 }
 
-function toApiStaff(row, user = null, assignment = null) {
+function toApiAssignmentHistory(assignment, salon = null) {
+  return {
+    id: assignment.id,
+    salonId: assignment.salon_id,
+    salonName: salon?.name || '',
+    active: Boolean(assignment.active),
+    fromDate: assignment.from_date || null,
+    toDate: assignment.to_date || null
+  };
+}
+
+function toApiStaff(row, user = null, assignment = null, assignmentHistory = []) {
   return {
     id: row.id,
     salonId: assignment?.salon_id || row.salon_id,
@@ -101,6 +117,7 @@ function toApiStaff(row, user = null, assignment = null) {
     bookable: Boolean(row.bookable),
     deletedAt: row.deleted_at || null,
     deletedBy: row.deleted_by || null,
+    assignmentHistory,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -159,9 +176,9 @@ function normalizeStaffInput(input = {}, salonId, { partial = false } = {}) {
   return payload;
 }
 
-function normalizeAssignmentInput(input = {}, currentSalonId) {
+function normalizeAssignmentInput(input = {}, currentSalonId, { allowInputSalon = true } = {}) {
   const payload = {
-    salon_id: input.salonId || input.salon_id || currentSalonId
+    salon_id: allowInputSalon ? input.salonId || input.salon_id || currentSalonId : currentSalonId
   };
 
   if (input.assignmentActive !== undefined) payload.active = Boolean(input.assignmentActive);
@@ -194,6 +211,57 @@ async function loadUsersById(userIds) {
   }
 
   return new Map((data || []).map((user) => [user.id, user]));
+}
+
+async function loadSalonsById(salonIds) {
+  const uniqueIds = [...new Set(salonIds.filter(Boolean))];
+  if (!uniqueIds.length) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from('salons')
+    .select(SALON_LOOKUP_FIELDS)
+    .in('id', uniqueIds);
+
+  if (error) {
+    throwStaffDatabaseError('fetch staff assignment salons', error);
+  }
+
+  return new Map((data || []).map((salon) => [salon.id, salon]));
+}
+
+async function loadAssignmentsByStaffIds(staffIds) {
+  const uniqueIds = [...new Set(staffIds.filter(Boolean))];
+  if (!uniqueIds.length) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('staff_salon_assignments')
+    .select(STAFF_ASSIGNMENT_FIELDS)
+    .in('staff_id', uniqueIds)
+    .order('from_date', { ascending: false });
+
+  if (error) {
+    throwStaffDatabaseError('fetch staff salon assignment history', error);
+  }
+
+  return data || [];
+}
+
+async function loadAssignmentHistoryByStaffId(staffIds) {
+  const assignments = await loadAssignmentsByStaffIds(staffIds);
+  const salonsById = await loadSalonsById(assignments.map((assignment) => assignment.salon_id));
+  const historyByStaffId = new Map();
+
+  assignments.forEach((assignment) => {
+    const history = historyByStaffId.get(assignment.staff_id) || [];
+    history.push(toApiAssignmentHistory(assignment, salonsById.get(assignment.salon_id)));
+    historyByStaffId.set(assignment.staff_id, history);
+  });
+
+  return historyByStaffId;
 }
 
 async function loadAssignmentForStaff(staffId, salonId) {
@@ -239,7 +307,8 @@ async function loadStaffById(id, salonId) {
 
   const staff = await loadStaffRowById(id);
   const usersById = await loadUsersById([staff.user_id]);
-  return toApiStaff(staff, usersById.get(staff.user_id), assignment);
+  const historyByStaffId = await loadAssignmentHistoryByStaffId([staff.id]);
+  return toApiStaff(staff, usersById.get(staff.user_id), assignment, historyByStaffId.get(staff.id) || []);
 }
 
 async function closeActiveAssignments(staffId, exceptSalonId = null) {
@@ -399,9 +468,20 @@ export const getAllStaff = async (req, res) => {
 
   const rows = data || [];
   const usersById = await loadUsersById(rows.map((staff) => staff.user_id));
-  const assignmentByStaffId = new Map(assignmentRows.map((assignment) => [assignment.staff_id, assignment]));
+  const assignmentByStaffId = new Map();
+  assignmentRows.forEach((assignment) => {
+    if (!assignmentByStaffId.has(assignment.staff_id)) {
+      assignmentByStaffId.set(assignment.staff_id, assignment);
+    }
+  });
+  const historyByStaffId = await loadAssignmentHistoryByStaffId(rows.map((staff) => staff.id));
 
-  res.json(rows.map((staff) => toApiStaff(staff, usersById.get(staff.user_id), assignmentByStaffId.get(staff.id))));
+  res.json(rows.map((staff) => toApiStaff(
+    staff,
+    usersById.get(staff.user_id),
+    assignmentByStaffId.get(staff.id),
+    historyByStaffId.get(staff.id) || []
+  )));
 };
 
 export const getStaffById = async (req, res) => {
@@ -410,7 +490,7 @@ export const getStaffById = async (req, res) => {
 
 export const createStaff = async (req, res) => {
   const payload = normalizeStaffInput(req.body || {}, req.salonId);
-  const assignmentInput = normalizeAssignmentInput(req.body || {}, req.salonId);
+  const assignmentInput = normalizeAssignmentInput(req.body || {}, req.salonId, { allowInputSalon: false });
   payload.salon_id = assignmentInput.salon_id;
 
   const { data, error } = await supabase
@@ -425,7 +505,8 @@ export const createStaff = async (req, res) => {
 
   const assignment = await createAssignment(data.id, assignmentInput);
   const usersById = await loadUsersById([data.user_id]);
-  res.status(201).json(toApiStaff(data, usersById.get(data.user_id), assignment));
+  const historyByStaffId = await loadAssignmentHistoryByStaffId([data.id]);
+  res.status(201).json(toApiStaff(data, usersById.get(data.user_id), assignment, historyByStaffId.get(data.id) || []));
 };
 
 export const updateStaff = async (req, res) => {
@@ -434,7 +515,7 @@ export const updateStaff = async (req, res) => {
     throw new ApiError(404, 'Staff member not found in this salon', { expose: true });
   }
 
-  const assignmentInput = normalizeAssignmentInput(req.body || {}, req.salonId);
+  const assignmentInput = normalizeAssignmentInput(req.body || {}, req.salonId, { allowInputSalon: false });
   const shouldMoveSalon = assignmentInput.salon_id && assignmentInput.salon_id !== currentAssignment.salon_id;
   const payload = normalizeStaffInput(req.body || {}, req.salonId, { partial: true });
 
@@ -492,7 +573,8 @@ export const updateStaff = async (req, res) => {
   }
 
   const usersById = await loadUsersById([data.user_id]);
-  res.json(toApiStaff(data, usersById.get(data.user_id), assignment));
+  const historyByStaffId = await loadAssignmentHistoryByStaffId([data.id]);
+  res.json(toApiStaff(data, usersById.get(data.user_id), assignment, historyByStaffId.get(data.id) || []));
 };
 
 export const deleteStaff = async (req, res) => {
@@ -543,8 +625,9 @@ export const deleteStaff = async (req, res) => {
 
   await deleteLinkedUserIfRequested(staff.userId, shouldDeleteUser);
   const usersById = await loadUsersById([staffRow.user_id]);
+  const historyByStaffId = await loadAssignmentHistoryByStaffId([staffRow.id]);
   res.status(200).json({
-    staff: toApiStaff(staffRow, usersById.get(staffRow.user_id), assignment),
+    staff: toApiStaff(staffRow, usersById.get(staffRow.user_id), assignment, historyByStaffId.get(staffRow.id) || []),
     deleted: false,
     softDeleted: true
   });
