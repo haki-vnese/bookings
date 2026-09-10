@@ -5,6 +5,7 @@ import {
   updateAddressRecord,
   toApiAddress
 } from './addressesController.js';
+import { allowedCompanyIds, assertCompanyAllowed } from '../utils/accessControl.js';
 
 // Các field Company bám theo TODO và bảng Supabase. Dữ liệu Address được load
 // riêng để bảng companies chỉ giữ foreign key `address_id` đúng kiểu normalized.
@@ -198,10 +199,23 @@ async function loadCompanyById(id) {
 // GET /api/companies
 // Trả về toàn bộ Company, mỗi item có object Address normalized đi kèm.
 export const getAllCompanies = async (req, res) => {
-  const { data, error } = await supabase
+  // super_admin thấy tất cả company; company_admin chỉ thấy company trong membership.
+  const companyIds = allowedCompanyIds(req);
+
+  if (companyIds && !companyIds.length) {
+    return res.json([]);
+  }
+
+  let query = supabase
     .from('companies')
     .select(COMPANY_FIELDS)
     .order('created_at', { ascending: false });
+
+  if (companyIds) {
+    query = query.in('id', companyIds);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throwCompanyDatabaseError('fetch companies', error);
@@ -213,6 +227,8 @@ export const getAllCompanies = async (req, res) => {
 };
 
 export const getCompanyById = async (req, res) => {
+  // Kiểm tra scope trước khi load để tránh lộ company ngoài quyền.
+  assertCompanyAllowed(req, req.params.id, 'view this company');
   res.json(await loadCompanyById(req.params.id));
 };
 
@@ -221,6 +237,11 @@ export const getCompanyById = async (req, res) => {
 // 1. `addressId`/`address_id` trỏ tới address có sẵn.
 // 2. `address` tạo address mới trước, rồi lưu id của nó vào Company.
 export const createCompany = async (req, res) => {
+  // Chỉ super_admin được tạo company mới ở cấp cao nhất.
+  if (!req.access?.isSuperAdmin) {
+    throw new ApiError(403, 'Only admins can create companies', { expose: true });
+  }
+
   const payload = normalizeCompanyInput(req.body || {});
   await assertCompanyEmailAvailable(payload.email);
 
@@ -247,6 +268,8 @@ export const createCompany = async (req, res) => {
 // Field của Company update trên row companies. Field `address` lồng bên trong
 // sẽ update row Address đang liên kết để Company giữ nguyên `address_id`.
 export const updateCompany = async (req, res) => {
+  // Company admin chỉ được sửa company của chính họ.
+  assertCompanyAllowed(req, req.params.id, 'update this company');
 
   /* existing được load để kiểm tra Company tồn tại trước khi update, đồng thời lấy
   addressId hiện tại để update nếu cần. Nếu không tồn tại sẽ trả 404; nếu có lỗi database sẽ trả 500.*/
@@ -294,6 +317,11 @@ export const updateCompany = async (req, res) => {
 // Database chịu trách nhiệm bảo vệ quan hệ. Nếu sau này Salon/Staff tham chiếu
 // Company, foreign key sẽ chặn delete và API trả 409 rõ ràng.
 export const deleteCompany = async (req, res) => {
+  // Xóa company là thao tác cấp hệ thống nên chỉ super_admin được phép.
+  if (!req.access?.isSuperAdmin) {
+    throw new ApiError(403, 'Only admins can delete companies', { expose: true });
+  }
+
   const { data, error } = await supabase
     .from('companies')
     .delete()

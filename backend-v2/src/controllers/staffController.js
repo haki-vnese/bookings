@@ -1,5 +1,12 @@
 import supabase from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
+import {
+  actorCanMoveSalon,
+  assertSalonAllowed,
+  assertSalonAssignable,
+  requestedSalonFilter,
+  resolveReadableSalonIds
+} from '../utils/accessControl.js';
 
 const STAFF_FIELDS = `
   id,
@@ -43,7 +50,7 @@ const SALON_LOOKUP_FIELDS = `
   name
 `;
 
-const SALON_USER_ROLES = ['staff', 'salon_admin'];
+const SALON_USER_ROLES = ['staff', 'salon_admin', 'user'];
 
 function throwStaffDatabaseError(action, error) {
   if (error?.code === '42P01') {
@@ -97,6 +104,18 @@ function toApiAssignmentHistory(assignment, salon = null) {
   };
 }
 
+/**
+ * Chuyển staff database sang response API.
+ *
+ * Input:
+ * - row: row từ bảng `staff`.
+ * - user: linked user row nếu có.
+ * - assignment: assignment hiện tại trong scope request.
+ * - assignmentHistory: toàn bộ lịch sử salon assignment của staff.
+ *
+ * Output:
+ * - Object staff camelCase dùng cho frontend Staff page.
+ */
 function toApiStaff(row, user = null, assignment = null, assignmentHistory = []) {
   return {
     id: row.id,
@@ -123,6 +142,20 @@ function toApiStaff(row, user = null, assignment = null, assignmentHistory = [])
   };
 }
 
+/**
+ * Chuẩn hóa body staff create/update về shape database.
+ *
+ * Input:
+ * - input: body từ client.
+ * - salonId: salon đã được backend resolve/validate.
+ * - partial: true khi update partial.
+ *
+ * Output:
+ * - Object payload dùng cho bảng `staff`.
+ *
+ * Lỗi:
+ * - 400 nếu create thiếu salon/displayName/email/phone hoặc update gửi field rỗng.
+ */
 function normalizeStaffInput(input = {}, salonId, { partial = false } = {}) {
   const payload = {};
 
@@ -176,6 +209,17 @@ function normalizeStaffInput(input = {}, salonId, { partial = false } = {}) {
   return payload;
 }
 
+/**
+ * Chuẩn hóa dữ liệu assignment salon của staff.
+ *
+ * Input:
+ * - input: body từ client.
+ * - currentSalonId: salon mặc định nếu client không được phép gửi salon.
+ * - allowInputSalon: true nếu actor được phép đổi salon.
+ *
+ * Output:
+ * - Object `{ salon_id, active?, from_date?, to_date? }`.
+ */
 function normalizeAssignmentInput(input = {}, currentSalonId, { allowInputSalon = true } = {}) {
   const payload = {
     salon_id: allowInputSalon ? input.salonId || input.salon_id || currentSalonId : currentSalonId
@@ -311,6 +355,92 @@ async function loadStaffById(id, salonId) {
   return toApiStaff(staff, usersById.get(staff.user_id), assignment, historyByStaffId.get(staff.id) || []);
 }
 
+/**
+ * Tìm assignment của staff trong scope actor.
+ *
+ * Input:
+ * - staffId: UUID staff.
+ * - req: Express request đã có `req.access`.
+ *
+ * Output:
+ * - Promise resolve assignment mới nhất trong scope, hoặc null nếu không thấy.
+ */
+async function loadVisibleAssignmentForStaff(staffId, req) {
+  const salonIds = resolveReadableSalonIds(req);
+
+  let query = supabase
+    .from('staff_salon_assignments')
+    .select(STAFF_ASSIGNMENT_FIELDS)
+    .eq('staff_id', staffId)
+    .order('active', { ascending: false })
+    .order('from_date', { ascending: false })
+    .limit(1);
+
+  if (salonIds) {
+    if (!salonIds.length) return null;
+    query = query.in('salon_id', salonIds);
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    throwStaffDatabaseError('fetch visible staff salon assignment', error);
+  }
+
+  return data || null;
+}
+
+/**
+ * Xác định salon được phép dùng khi tạo staff.
+ *
+ * Input:
+ * - req: Express request đã có `req.access`.
+ * - inputSalonId: salon client muốn assign, nếu có.
+ *
+ * Output:
+ * - Promise resolve UUID salon đã được kiểm tra quyền.
+ *
+ * Quy tắc:
+ * - super_admin/company_admin phải assign salon hợp lệ trong scope.
+ * - salon_admin chỉ dùng salon của chính họ.
+ */
+async function resolveWritableSalonForStaff(req, inputSalonId = '') {
+  const requestedSalonId = inputSalonId || requestedSalonFilter(req);
+
+  if (actorCanMoveSalon(req)) {
+    if (!requestedSalonId) {
+      throw new ApiError(400, 'Salon is required', { expose: true });
+    }
+    const salon = await assertSalonAssignable(req, requestedSalonId);
+    return salon.id;
+  }
+
+  const readableSalonIds = resolveReadableSalonIds(req);
+  if (requestedSalonId) {
+    assertSalonAllowed(req, requestedSalonId, 'assign this salon');
+    return requestedSalonId;
+  }
+
+  if (readableSalonIds?.length === 1) {
+    return readableSalonIds[0];
+  }
+
+  throw new ApiError(400, 'Salon is required', { expose: true });
+}
+
+/**
+ * Đóng các assignment active của staff.
+ *
+ * Input:
+ * - staffId: UUID staff.
+ * - exceptSalonId: nếu có, giữ assignment của salon này không bị đóng.
+ *
+ * Output:
+ * - Promise resolve undefined.
+ *
+ * Side effects:
+ * - Update `staff_salon_assignments.active=false` và set `to_date`.
+ */
 async function closeActiveAssignments(staffId, exceptSalonId = null) {
   let query = supabase
     .from('staff_salon_assignments')
@@ -333,6 +463,19 @@ async function closeActiveAssignments(staffId, exceptSalonId = null) {
   }
 }
 
+/**
+ * Tạo assignment salon mới cho staff.
+ *
+ * Input:
+ * - staffId: UUID staff.
+ * - assignmentInput: object đã qua normalizeAssignmentInput.
+ *
+ * Output:
+ * - Promise resolve row assignment vừa tạo.
+ *
+ * Side effects:
+ * - Nếu assignment mới active, đóng các active assignment khác trước.
+ */
 async function createAssignment(staffId, assignmentInput) {
   const payload = {
     staff_id: staffId,
@@ -359,6 +502,16 @@ async function createAssignment(staffId, assignmentInput) {
   return data;
 }
 
+/**
+ * Update một assignment salon hiện có.
+ *
+ * Input:
+ * - assignment: row assignment hiện tại.
+ * - patch: field active/from_date/to_date cần đổi.
+ *
+ * Output:
+ * - Promise resolve row assignment sau update.
+ */
 async function updateAssignment(assignment, patch) {
   if (patch.active === true) {
     await closeActiveAssignments(assignment.staff_id, assignment.salon_id);
@@ -386,6 +539,20 @@ async function updateAssignment(assignment, patch) {
   return data;
 }
 
+/**
+ * Đồng bộ membership salon của linked user khi staff đổi salon.
+ *
+ * Input:
+ * - userId: UUID user liên kết với staff.
+ * - fromSalonId: salon cũ.
+ * - toSalonId: salon mới.
+ *
+ * Output:
+ * - Promise resolve undefined.
+ *
+ * Side effects:
+ * - Update `user_memberships.salon_id` cho role salon-level của linked user.
+ */
 async function moveLinkedUserMembership(userId, fromSalonId, toSalonId) {
   if (!userId || !fromSalonId || !toSalonId || fromSalonId === toSalonId) {
     return;
@@ -421,17 +588,32 @@ async function deleteLinkedUserIfRequested(userId, shouldDeleteUser) {
   }
 }
 
+/**
+ * GET /api/staff
+ *
+ * Input:
+ * - req.access: scope actor.
+ * - query.includeDeleted: "true" để lấy cả staff đã soft-delete.
+ * - query.includeInactiveAssignments: "true" để lấy cả assignment inactive.
+ *
+ * Output:
+ * - JSON array staff trong salon scope của actor.
+ */
 export const getAllStaff = async (req, res) => {
-  const salonId = req.salonId;
+  const salonIds = resolveReadableSalonIds(req);
   const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true';
   const includeInactiveAssignments = String(req.query.includeInactiveAssignments || '').toLowerCase() === 'true';
 
   let assignmentQuery = supabase
     .from('staff_salon_assignments')
     .select(STAFF_ASSIGNMENT_FIELDS)
-    .eq('salon_id', salonId)
     .order('active', { ascending: false })
     .order('from_date', { ascending: false });
+
+  if (salonIds) {
+    if (!salonIds.length) return res.json([]);
+    assignmentQuery = assignmentQuery.in('salon_id', salonIds);
+  }
 
   if (!includeInactiveAssignments) {
     assignmentQuery = assignmentQuery.eq('active', true);
@@ -484,13 +666,46 @@ export const getAllStaff = async (req, res) => {
   )));
 };
 
+/**
+ * GET /api/staff/:id
+ *
+ * Input:
+ * - req.params.id: UUID staff.
+ * - req.access: scope actor.
+ *
+ * Output:
+ * - JSON staff nếu có assignment nằm trong scope actor.
+ *
+ * Lỗi:
+ * - 404 nếu staff không nằm trong salon actor được phép xem.
+ */
 export const getStaffById = async (req, res) => {
-  res.json(await loadStaffById(req.params.id, req.salonId));
+  const assignment = await loadVisibleAssignmentForStaff(req.params.id, req);
+  if (!assignment) {
+    throw new ApiError(404, 'Staff member not found in this scope', { expose: true });
+  }
+
+  res.json(await loadStaffById(req.params.id, assignment.salon_id));
 };
 
+/**
+ * POST /api/staff
+ *
+ * Input:
+ * - req.body: thông tin staff.
+ * - req.body.salonId/salon_id: salon muốn assign, bắt buộc với super_admin/company_admin.
+ *
+ * Output:
+ * - 201 JSON staff vừa tạo.
+ *
+ * Side effects:
+ * - Insert `staff`.
+ * - Insert assignment đầu tiên vào `staff_salon_assignments`.
+ */
 export const createStaff = async (req, res) => {
-  const payload = normalizeStaffInput(req.body || {}, req.salonId);
-  const assignmentInput = normalizeAssignmentInput(req.body || {}, req.salonId, { allowInputSalon: false });
+  const salonId = await resolveWritableSalonForStaff(req, req.body?.salonId || req.body?.salon_id || '');
+  const payload = normalizeStaffInput(req.body || {}, salonId);
+  const assignmentInput = normalizeAssignmentInput(req.body || {}, salonId, { allowInputSalon: false });
   payload.salon_id = assignmentInput.salon_id;
 
   const { data, error } = await supabase
@@ -509,15 +724,37 @@ export const createStaff = async (req, res) => {
   res.status(201).json(toApiStaff(data, usersById.get(data.user_id), assignment, historyByStaffId.get(data.id) || []));
 };
 
+/**
+ * PUT /api/staff/:id
+ *
+ * Input:
+ * - req.params.id: UUID staff.
+ * - req.body: field staff partial và/hoặc assignment fields.
+ * - req.body.salonId: salon mới nếu actor được phép chuyển salon.
+ *
+ * Output:
+ * - JSON staff sau update.
+ *
+ * Side effects:
+ * - Update `staff`.
+ * - Nếu đổi salon: đóng assignment cũ, tạo assignment mới, sync `staff.salon_id`.
+ * - Nếu staff linked user: sync membership salon của user liên kết.
+ */
 export const updateStaff = async (req, res) => {
-  const currentAssignment = await loadAssignmentForStaff(req.params.id, req.salonId);
+  const currentAssignment = await loadVisibleAssignmentForStaff(req.params.id, req);
   if (!currentAssignment) {
-    throw new ApiError(404, 'Staff member not found in this salon', { expose: true });
+    throw new ApiError(404, 'Staff member not found in this scope', { expose: true });
   }
 
-  const assignmentInput = normalizeAssignmentInput(req.body || {}, req.salonId, { allowInputSalon: false });
+  const assignmentInput = normalizeAssignmentInput(req.body || {}, currentAssignment.salon_id, {
+    allowInputSalon: actorCanMoveSalon(req)
+  });
   const shouldMoveSalon = assignmentInput.salon_id && assignmentInput.salon_id !== currentAssignment.salon_id;
-  const payload = normalizeStaffInput(req.body || {}, req.salonId, { partial: true });
+  if (shouldMoveSalon) {
+    // Chỉ super_admin/company_admin được chuyển staff sang salon khác.
+    await assertSalonAssignable(req, assignmentInput.salon_id);
+  }
+  const payload = normalizeStaffInput(req.body || {}, currentAssignment.salon_id, { partial: true });
 
   let data = await loadStaffRowById(req.params.id);
 
@@ -577,10 +814,28 @@ export const updateStaff = async (req, res) => {
   res.json(toApiStaff(data, usersById.get(data.user_id), assignment, historyByStaffId.get(data.id) || []));
 };
 
+/**
+ * DELETE /api/staff/:id
+ *
+ * Input:
+ * - req.params.id: UUID staff.
+ * - query/body.deleteLinkedUser: "true" nếu muốn xóa user liên kết.
+ *
+ * Output:
+ * - JSON `{ staff, deleted:false, softDeleted:true }`.
+ *
+ * Side effects:
+ * - Đóng assignment staff trong salon hiện tại.
+ * - Nếu không còn active assignment nào, deactivate staff/bookable.
+ * - Tùy chọn xóa linked user nếu caller yêu cầu.
+ */
 export const deleteStaff = async (req, res) => {
   const shouldDeleteUser = String(req.query.deleteLinkedUser || req.body?.deleteLinkedUser || '').toLowerCase() === 'true';
-  const staff = await loadStaffById(req.params.id, req.salonId);
-  const currentAssignment = await loadAssignmentForStaff(req.params.id, req.salonId);
+  const currentAssignment = await loadVisibleAssignmentForStaff(req.params.id, req);
+  if (!currentAssignment) {
+    throw new ApiError(404, 'Staff member not found in this scope', { expose: true });
+  }
+  const staff = await loadStaffById(req.params.id, currentAssignment.salon_id);
 
   const assignment = await updateAssignment(currentAssignment, {
     active: false,

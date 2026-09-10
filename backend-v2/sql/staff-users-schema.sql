@@ -18,16 +18,43 @@ create table if not exists user_memberships (
   user_id uuid not null references users(id) on delete cascade,
   company_id uuid references companies(id),
   salon_id uuid references salons(id),
-  role text not null check (role in ('super_admin', 'company_admin', 'salon_admin', 'staff')),
+  role text not null check (role in ('super_admin', 'company_admin', 'salon_admin', 'user', 'staff')),
   status text not null default 'active' check (status in ('active', 'inactive', 'invited')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check (
     (role = 'super_admin' and company_id is null and salon_id is null)
     or (role = 'company_admin' and company_id is not null and salon_id is null)
-    or (role in ('salon_admin', 'staff') and salon_id is not null)
+    or (role in ('salon_admin', 'user', 'staff') and salon_id is not null)
   )
 );
+
+-- Cập nhật constraint role để hỗ trợ role 'user' mới.
+-- Dùng drop/add để script chạy lại được trên database đã có constraint cũ.
+alter table user_memberships
+  drop constraint if exists user_memberships_role_check;
+
+alter table user_memberships
+  add constraint user_memberships_role_check
+  check (role in ('super_admin', 'company_admin', 'salon_admin', 'user', 'staff'));
+
+-- Cập nhật constraint scope:
+-- super_admin không gắn company/salon,
+-- company_admin gắn company,
+-- salon_admin/user/staff gắn salon.
+alter table user_memberships
+  drop constraint if exists user_memberships_check;
+
+alter table user_memberships
+  drop constraint if exists user_memberships_scope_check;
+
+alter table user_memberships
+  add constraint user_memberships_scope_check
+  check (
+    (role = 'super_admin' and company_id is null and salon_id is null)
+    or (role = 'company_admin' and company_id is not null and salon_id is null)
+    or (role in ('salon_admin', 'user', 'staff') and salon_id is not null)
+  );
 
 create unique index if not exists user_memberships_unique_scope
   on user_memberships (
@@ -45,6 +72,27 @@ create index if not exists user_memberships_company_id_idx
 
 create index if not exists user_memberships_salon_id_idx
   on user_memberships (salon_id);
+
+-- Lưu lịch sử đổi role/company/salon của user để audit các lần chuyển salon.
+create table if not exists user_membership_history (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  membership_id uuid references user_memberships(id) on delete set null,
+  from_role text,
+  from_company_id uuid references companies(id),
+  from_salon_id uuid references salons(id),
+  to_role text,
+  to_company_id uuid references companies(id),
+  to_salon_id uuid references salons(id),
+  changed_by uuid references users(id),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists user_membership_history_user_id_idx
+  on user_membership_history (user_id, created_at desc);
+
+create index if not exists user_membership_history_membership_id_idx
+  on user_membership_history (membership_id);
 
 create table if not exists staff (
   id uuid primary key default gen_random_uuid(),

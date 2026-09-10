@@ -5,6 +5,10 @@ import {
   updateAddressRecord,
   toApiAddress
 } from './addressesController.js';
+import {
+  assertCompanyAllowed,
+  assertSalonAllowed
+} from '../utils/accessControl.js';
 
 const SALON_FIELDS = `
   id,
@@ -151,6 +155,8 @@ async function loadSalonById(id) {
 
 export const getSalonsByCompanyId = async (req, res) => {
   const { companyId } = req.params;
+  // Actor phải có quyền trên company trước khi xem danh sách salon con.
+  assertCompanyAllowed(req, companyId, 'view salons for this company');
 
   const { data, error } = await supabase
     .from('salons')
@@ -168,10 +174,19 @@ export const getSalonsByCompanyId = async (req, res) => {
 };
 
 export const getSalonById = async (req, res) => {
+  // Salon admin được xem salon của mình, nhưng không được sửa salon nếu không có quyền cao hơn.
+  assertSalonAllowed(req, req.params.id, 'view this salon');
   res.json(await loadSalonById(req.params.id));
 };
 
 export const createSalon = async (req, res) => {
+  // Chỉ super_admin/company_admin được quản lý cấu trúc salon.
+  if (!['super_admin', 'company_admin'].includes(req.access?.effectiveRole)) {
+    throw new ApiError(403, 'You do not have permission to create salons', { expose: true });
+  }
+
+  assertCompanyAllowed(req, req.params.companyId, 'create salons for this company');
+
   const payload = normalizeSalonInput({
     ...(req.body || {}),
     companyId: req.params.companyId
@@ -197,6 +212,13 @@ export const createSalon = async (req, res) => {
 };
 
 export const updateSalon = async (req, res) => {
+  // Salon admin không được sửa salon record; họ chỉ quản lý user/staff trong salon.
+  if (!['super_admin', 'company_admin'].includes(req.access?.effectiveRole)) {
+    throw new ApiError(403, 'You do not have permission to update salons', { expose: true });
+  }
+
+  assertSalonAllowed(req, req.params.id, 'update this salon');
+
   const existing = await loadSalonById(req.params.id);
   const payload = normalizeSalonInput(req.body || {}, { partial: true });
 
@@ -233,6 +255,13 @@ export const updateSalon = async (req, res) => {
 };
 
 export const deleteSalon = async (req, res) => {
+  // Xóa salon chỉ dành cho cấp super_admin/company_admin và vẫn bị FK bảo vệ.
+  if (!['super_admin', 'company_admin'].includes(req.access?.effectiveRole)) {
+    throw new ApiError(403, 'You do not have permission to delete salons', { expose: true });
+  }
+
+  assertSalonAllowed(req, req.params.id, 'delete this salon');
+
   const { data, error } = await supabase
     .from('salons')
     .delete()
