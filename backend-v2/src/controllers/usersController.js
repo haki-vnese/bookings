@@ -1,5 +1,6 @@
 import supabase from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
+import { createPasswordResetForUser } from './authController.js';
 import {
   SALON_SCOPED_ROLES,
   assertMembershipAssignable,
@@ -200,7 +201,7 @@ function normalizeUserInput(input = {}, { partial = false } = {}) {
   }
 
   if (!payload.status && !partial) {
-    payload.status = 'active';
+    payload.status = 'invited';
   }
 
   if (payload.status !== undefined && !VALID_STATUSES.has(payload.status)) {
@@ -221,7 +222,8 @@ function normalizeUserInput(input = {}, { partial = false } = {}) {
  * - Object `{ role, company_id, salon_id }` đã validate bằng normalizeMembershipScope.
  */
 function membershipInputWithDefaults(req, input = {}) {
-  const role = input.role || input.membership?.role || 'user';
+  const fallbackRole = req.access?.effectiveRole === 'super_admin' ? 'company_admin' : 'user';
+  const role = input.role || input.membership?.role || fallbackRole;
   let companyId = input.companyId || input.company_id || input.membership?.companyId || input.membership?.company_id || null;
   let salonId = input.salonId || input.salon_id || input.membership?.salonId || input.membership?.salon_id || null;
 
@@ -275,8 +277,7 @@ async function loadVisibleMemberships(req) {
   if (req.access.isSuperAdmin) {
     const { data, error } = await supabase
       .from('user_memberships')
-      .select(MEMBERSHIP_FIELDS)
-      .eq('status', 'active');
+      .select(MEMBERSHIP_FIELDS);
 
     if (error) throwUserDatabaseError('fetch memberships', error);
     return data || [];
@@ -288,7 +289,6 @@ async function loadVisibleMemberships(req) {
       supabase
         .from('user_memberships')
         .select(MEMBERSHIP_FIELDS)
-        .eq('status', 'active')
         .in('company_id', req.access.companyIds)
     );
   }
@@ -297,7 +297,6 @@ async function loadVisibleMemberships(req) {
       supabase
         .from('user_memberships')
         .select(MEMBERSHIP_FIELDS)
-        .eq('status', 'active')
         .in('salon_id', req.access.salonIds)
     );
   }
@@ -310,6 +309,10 @@ async function loadVisibleMemberships(req) {
   }
 
   const memberships = [...byId.values()];
+  if (req.access.effectiveRole === 'company_admin') {
+    return memberships.filter((membership) => ['salon_admin', 'user', 'staff'].includes(membership.role));
+  }
+
   if (req.access.effectiveRole === 'salon_admin') {
     return memberships.filter((membership) => ['user', 'staff'].includes(membership.role));
   }
@@ -545,6 +548,7 @@ export const getUserById = async (req, res) => {
  */
 export const createUser = async (req, res) => {
   const payload = normalizeUserInput(req.body || {});
+  payload.status = 'invited';
   const membershipScope = membershipInputWithDefaults(req, req.body || {});
   await assertMembershipAssignable(req, membershipScope);
 
@@ -561,7 +565,7 @@ export const createUser = async (req, res) => {
     .insert([{
       user_id: data.id,
       ...membershipScope,
-      status: payload.status || 'active'
+      status: 'invited'
     }])
     .select(MEMBERSHIP_FIELDS)
     .single();
@@ -571,8 +575,12 @@ export const createUser = async (req, res) => {
     throwUserDatabaseError('create user membership', membershipError);
   }
 
+  const invitation = await createPasswordResetForUser(data);
   const [user] = await enrichUsers([data], [membership]);
-  res.status(201).json(user);
+  res.status(201).json({
+    ...user,
+    invitation
+  });
 };
 
 /**

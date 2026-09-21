@@ -13,6 +13,47 @@ create table if not exists users (
 create unique index if not exists users_email_unique
   on users (lower(email));
 
+alter table users
+  add column if not exists password_hash text;
+
+create table if not exists auth_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  token_hash text not null unique,
+  session_family_id uuid not null,
+  rotated_from_session_id uuid references auth_sessions(id) on delete set null,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  user_agent text,
+  ip_address text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists auth_sessions_user_id_idx
+  on auth_sessions (user_id);
+
+create index if not exists auth_sessions_family_idx
+  on auth_sessions (session_family_id);
+
+create index if not exists auth_sessions_expires_at_idx
+  on auth_sessions (expires_at);
+
+create table if not exists password_reset_tokens (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  token_hash text not null unique,
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists password_reset_tokens_user_id_idx
+  on password_reset_tokens (user_id);
+
+create index if not exists password_reset_tokens_expires_at_idx
+  on password_reset_tokens (expires_at);
+
 create table if not exists user_memberships (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references users(id) on delete cascade,

@@ -1,5 +1,6 @@
 import supabase from '../db/supabase.js';
 import ApiError from '../utils/ApiError.js';
+import { verifyAccessToken } from '../utils/authTokens.js';
 
 const MEMBERSHIP_FIELDS = `
   id,
@@ -134,28 +135,27 @@ async function buildAccess(memberships) {
 }
 
 /**
- * Map Supabase Auth user sang user nội bộ trong bảng `users`.
+ * Map backend auth claims sang user nội bộ trong bảng `users`.
  *
  * Input:
- * - authUser: object user trả về từ `supabase.auth.getUser(token)`.
+ * - authClaims: decoded backend JWT claims.
  *
  * Output:
  * - Promise resolve row user nội bộ.
  *
  * Ghi chú:
- * - Hiện map bằng email để không cần thêm cột `auth_user_id`.
- * - Nếu sau này thêm cột auth id, chỉ cần thay logic trong hàm này.
+ * - JWT chỉ chứa user id tối thiểu; quyền/scope luôn load từ DB.
  */
-async function loadLocalUser(authUser) {
-  const email = String(authUser?.email || '').trim().toLowerCase();
-  if (!email) {
-    throw new ApiError(401, 'Authenticated Supabase user is missing an email', { expose: true });
+async function loadLocalUser(authClaims) {
+  const userId = String(authClaims?.sub || '').trim();
+  if (!userId) {
+    throw new ApiError(401, 'Authenticated token is missing a user id', { expose: true });
   }
 
   const { data, error } = await supabase
     .from('users')
     .select(ACTOR_USER_FIELDS)
-    .ilike('email', email)
+    .eq('id', userId)
     .maybeSingle();
 
   if (error) {
@@ -164,6 +164,10 @@ async function loadLocalUser(authUser) {
 
   if (!data) {
     throw new ApiError(403, 'Authenticated user is not registered in this admin system', { expose: true });
+  }
+
+  if (data.status !== 'active') {
+    throw new ApiError(403, 'Authenticated user is not active', { expose: true });
   }
 
   return data;
@@ -197,11 +201,11 @@ async function loadMemberships(userId) {
  *
  * Input:
  * - req/res/next của Express.
- * - Header bắt buộc: Authorization: Bearer <Supabase JWT>.
+ * - Header bắt buộc: Authorization: Bearer <backend JWT>.
  *
  * Output:
  * - Gắn vào req:
- *   - req.authUser: Supabase auth user.
+ *   - req.authUser: backend auth claims.
  *   - req.actor: user nội bộ.
  *   - req.actorMemberships: membership active.
  *   - req.access: quyền/scope đã tính sẵn.
@@ -218,18 +222,14 @@ export async function requireAuthContext(req, res, next) {
       throw new ApiError(401, 'Missing Authorization bearer token', { expose: true });
     }
 
-    const { data, error } = await supabase.auth.getUser(token);
-    if (error || !data?.user) {
-      throw new ApiError(401, 'Invalid or expired Authorization token', { details: error, expose: true });
-    }
-
-    const actor = await loadLocalUser(data.user);
+    const authClaims = verifyAccessToken(token);
+    const actor = await loadLocalUser(authClaims);
     const memberships = await loadMemberships(actor.id);
     if (!memberships.length) {
       throw new ApiError(403, 'Authenticated user has no active memberships', { expose: true });
     }
 
-    req.authUser = data.user;
+    req.authUser = authClaims;
     req.actor = actor;
     req.actorMemberships = memberships;
     req.access = await buildAccess(memberships);

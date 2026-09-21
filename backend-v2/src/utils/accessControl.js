@@ -243,11 +243,6 @@ export async function assertMembershipAssignable(req, membershipScope) {
   }
 
   if (req.access?.effectiveRole === 'company_admin') {
-    if (membershipScope.role === 'company_admin') {
-      assertCompanyAllowed(req, membershipScope.company_id, 'assign this company');
-      return;
-    }
-
     if (SALON_SCOPED_ROLES.has(membershipScope.role)) {
       await assertSalonAssignable(req, membershipScope.salon_id);
       return;

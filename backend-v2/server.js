@@ -11,6 +11,7 @@ import salonsRouter from './src/routes/salonsRoutes.js';
 import staffRouter from './src/routes/staffRoutes.js';
 import usersRouter from './src/routes/usersRoutes.js';
 import meRouter from './src/routes/meRoutes.js';
+import authRouter from './src/routes/authRoutes.js';
 import { requireAuthContext, requireAdminContext } from './src/middleware/authContext.js';
 import { requireSalonHeader } from './src/middleware/salonContext.js';
 import { notFound, errorHandler } from './src/middleware/errorHandler.js';
@@ -34,6 +35,7 @@ app.use(express.json());
 // Routes
 // Addresses và Companies hiện chưa scope theo salon. Categories vẫn giữ
 // middleware x-salon-id vì bảng đó đã phụ thuộc salon.
+app.use('/api/auth', authRouter);
 app.use('/api/me', requireAuthContext, meRouter);
 app.use('/api/addresses', requireAuthContext, requireAdminContext, addressesRouter);
 app.use('/api/categories', requireAuthContext, requireAdminContext, requireSalonHeader, categoriesRouter);
