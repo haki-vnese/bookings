@@ -101,7 +101,7 @@ function buildMessage({ to, subject, text }) {
 
 export function buildPasswordResetUrl(token) {
   const baseUrl = String(process.env.ADMIN_PORTAL_URL || 'https://booking.hairtasticheadspa.ca/spa-admin').replace(/\/+$/, '');
-  return `${baseUrl}/reset-password#token=${encodeURIComponent(token)}`;
+  return `${baseUrl}#reset-password&token=${encodeURIComponent(token)}`;
 }
 
 export async function sendEmail({ to, subject, text }) {
