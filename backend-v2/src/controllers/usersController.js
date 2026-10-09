@@ -575,6 +575,9 @@ export const createUser = async (req, res) => {
     throwUserDatabaseError('create user membership', membershipError);
   }
 
+  // New users are invited rather than given a password by the admin. This
+  // creates a one-time password setup token and emails the same reset link
+  // handled by POST /api/auth/reset-password.
   const invitation = await createPasswordResetForUser(data);
   const [user] = await enrichUsers([data], [membership]);
   res.status(201).json({

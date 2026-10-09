@@ -105,6 +105,8 @@ async function issueSession(user, req) {
 }
 
 export async function createPasswordResetForUser(user, { returnToken = false } = {}) {
+  // Create a high-entropy token for the link, but persist only its hash. If
+  // the database is exposed, stored reset-token rows cannot be used directly.
   const token = randomToken();
   const resetUrl = buildPasswordResetUrl(token);
   const { error } = await supabase
@@ -119,6 +121,8 @@ export async function createPasswordResetForUser(user, { returnToken = false } =
     throw new ApiError(500, 'Failed to create password reset link', { details: error });
   }
 
+  // Mail delivery is delegated to mailService. In log mode or without SMTP
+  // settings, that service reports sent:false and logs the message for testing.
   const delivery = await sendPasswordResetEmail({
     to: user.email,
     fullName: user.full_name,
@@ -132,6 +136,9 @@ export async function createPasswordResetForUser(user, { returnToken = false } =
 }
 
 export const login = async (req, res) => {
+  // Login flow: normalize credentials, load the matching account, require an
+  // active account with a password, verify its hash, then issue access and
+  // refresh tokens. The refresh token itself is stored hashed in the database.
   const email = normalizeEmail(req.body?.email);
   const password = normalizePassword(req.body?.password);
 
@@ -153,6 +160,10 @@ export const login = async (req, res) => {
 };
 
 export const requestPasswordReset = async (req, res) => {
+  // Reset-request flow: look up the account and, if it exists and is not
+  // inactive, create a hashed one-time token and send its link by email.
+  // Respond identically for known and unknown addresses to avoid account
+  // enumeration. Inactive accounts do not receive a reset link.
   const email = normalizeEmail(req.body?.email);
   if (!email) {
     throw new ApiError(400, 'Email is required', { expose: true });
@@ -255,6 +266,10 @@ export const logout = async (req, res) => {
 };
 
 export const resetPassword = async (req, res) => {
+  // Complete reset flow: validate the submitted token by hashing it and
+  // looking up its database row; reject missing, used, or expired tokens;
+  // hash and save the new password; activate the user and invited memberships;
+  // mark the reset token used and revoke existing sessions for that user.
   const token = String(req.body?.token || '').trim();
   const password = normalizePassword(req.body?.password);
 
