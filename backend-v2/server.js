@@ -6,6 +6,7 @@ import cors from 'cors';
 
 import addressesRouter from './src/routes/addressesRoutes.js';
 import categoriesRouter from './src/routes/categoriesRoutes.js';
+import servicesRouter from './src/routes/servicesRoutes.js';
 import companiesRouter from './src/routes/companiesRoutes.js';
 import salonsRouter from './src/routes/salonsRoutes.js';
 import staffRouter from './src/routes/staffRoutes.js';
@@ -32,13 +33,12 @@ app.use(cors({
 
 app.use(express.json());
 
-// Routes
-// Addresses và Companies hiện chưa scope theo salon. Categories vẫn giữ
-// middleware x-salon-id vì bảng đó đã phụ thuộc salon.
+// Categories resolve the selected salon's company; services remain salon-scoped.
 app.use('/api/auth', authRouter);
 app.use('/api/me', requireAuthContext, meRouter);
 app.use('/api/addresses', requireAuthContext, requireAdminContext, addressesRouter);
 app.use('/api/categories', requireAuthContext, requireAdminContext, requireSalonHeader, categoriesRouter);
+app.use('/api/services', requireAuthContext, requireAdminContext, requireSalonHeader, servicesRouter);
 app.use('/api/companies', requireAuthContext, requireAdminContext, companiesRouter);
 app.use('/api/staff', requireAuthContext, requireAdminContext, staffRouter);
 app.use('/api/users', requireAuthContext, requireAdminContext, usersRouter);
